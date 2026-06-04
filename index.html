@@ -1042,6 +1042,8 @@ const Storage = {
   get _hasFSA() {
     // Android / iOS はローカル Vault にアクセスできないため GDrive モードを使う
     if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return false;
+    // GitHub Pages 上では全デバイスで GDrive API に統一（FSA は file:// / localhost のみ）
+    if (window.location.hostname.endsWith('github.io')) return false;
     return typeof window.showDirectoryPicker === 'function';
   },
 
