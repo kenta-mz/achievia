@@ -1127,31 +1127,37 @@ const Storage = {
         this._gdriveFileId = cached; return;
       } catch { localStorage.removeItem('achievia_gdrive_file_id'); }
     }
-    // Achievia フォルダを検索
+    // すべての Achievia フォルダを検索
     const fRes = await this._gReq('GET', 'files', {
       q: `name='Achievia' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
       fields: 'files(id)',
     });
+    // 各フォルダ内の data.json を全列挙し、最もサイズが大きいものを選ぶ
+    let bestId = null, bestSize = -1;
+    for (const folder of fRes.files) {
+      const dRes = await this._gReq('GET', 'files', {
+        q: `name='data.json' and '${folder.id}' in parents and trashed=false`,
+        fields: 'files(id,size)',
+      });
+      for (const f of dRes.files) {
+        const sz = parseInt(f.size || '0', 10);
+        if (sz > bestSize) { bestSize = sz; bestId = f.id; }
+      }
+    }
+    if (bestId) {
+      this._gdriveFileId = bestId;
+      localStorage.setItem('achievia_gdrive_file_id', this._gdriveFileId); return;
+    }
+    // 見つからない場合は新規作成
     let folderId;
     if (fRes.files.length) {
       folderId = fRes.files[0].id;
-      // data.json を検索
-      const dRes = await this._gReq('GET', 'files', {
-        q: `name='data.json' and '${folderId}' in parents and trashed=false`,
-        fields: 'files(id)',
-      });
-      if (dRes.files.length) {
-        this._gdriveFileId = dRes.files[0].id;
-        localStorage.setItem('achievia_gdrive_file_id', this._gdriveFileId); return;
-      }
     } else {
-      // Achievia フォルダを作成
       const folder = await this._gReq('POST', 'files', null, {
         name: 'Achievia', mimeType: 'application/vnd.google-apps.folder',
       });
       folderId = folder.id;
     }
-    // data.json を作成
     const file = await this._gCreateFile('data.json', folderId, this._defaultData());
     this._gdriveFileId = file.id;
     localStorage.setItem('achievia_gdrive_file_id', this._gdriveFileId);
