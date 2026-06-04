@@ -859,6 +859,11 @@ input[type="number"].no-spin::-webkit-outer-spin-button { -webkit-appearance: no
 
 <script>
 // ============================================================
+// GOOGLE DRIVE CONFIG
+// ============================================================
+const GDRIVE_CLIENT_ID = '908988415825-6h504mcnfj5udoie4vsn5prbqi2btosq.apps.googleusercontent.com';
+
+// ============================================================
 // STORAGE ABSTRACTION — Capacitor-ready
 // すべてのファイル操作はこのオブジェクト経由。
 // FSA API → Capacitor Filesystem に差し替える場合は
@@ -916,6 +921,13 @@ const Storage = {
 
   /* ---- Connection ---- */
   async tryRestore() {
+    if (!this._hasFSA) {
+      this._mode = 'gdrive';
+      const fileId = localStorage.getItem('achievia_gdrive_file_id');
+      if (fileId) { this._gdriveFileId = fileId; return 'gdrive-restore'; }
+      return 'gdrive-new';
+    }
+    this._mode = 'fsa';
     try {
       const handle = await this._loadHandle();
       if (!handle) return false;
@@ -959,6 +971,7 @@ const Storage = {
     }
   },
   async save() {
+    if (this._mode === 'gdrive') { await this.saveGDrive(); return; }
     if (!this._vaultHandle) return;
     try {
       const dir = await this._getDir(['Achievia']);
@@ -1001,8 +1014,171 @@ const Storage = {
   },
 
   get data() { return this._data; },
-  get connected() { return !!this._vaultHandle && !!this._data; },
-  get vaultName() { return this._vaultHandle ? this._vaultHandle.name : ''; },
+  get connected() {
+    if (this._mode === 'gdrive') return !!this._gdriveFileId && !!this._data;
+    return !!this._vaultHandle && !!this._data;
+  },
+  get vaultName() {
+    if (this._mode === 'gdrive') return 'Google Drive';
+    return this._vaultHandle ? this._vaultHandle.name : '';
+  },
+
+  // ============================================================
+  // GOOGLE DRIVE MODE
+  // ============================================================
+  _mode: null,
+  _gdriveToken: null,
+  _gdriveFileId: null,
+
+  get _hasFSA() { return typeof window.showDirectoryPicker === 'function'; },
+
+  /* GIS ライブラリを必要時だけ動的ロード */
+  async _ensureGIS() {
+    if (window.google?.accounts?.oauth2) return;
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://accounts.google.com/gsi/client';
+      s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  },
+
+  /* OAuth アクセストークン取得 */
+  async _gToken(prompt = '') {
+    await this._ensureGIS();
+    return new Promise((resolve, reject) => {
+      const tc = google.accounts.oauth2.initTokenClient({
+        client_id: GDRIVE_CLIENT_ID,
+        scope: 'https://www.googleapis.com/auth/drive',
+        callback: r => r.error ? reject(new Error(r.error)) : resolve(r.access_token),
+        error_callback: e => reject(new Error(e.type || 'GIS error')),
+      });
+      tc.requestAccessToken({ prompt });
+    });
+  },
+
+  /* Drive REST API 汎用リクエスト */
+  async _gReq(method, path, params, body) {
+    const url = new URL('https://www.googleapis.com/drive/v3/' + path);
+    if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+    const opts = { method, headers: { Authorization: `Bearer ${this._gdriveToken}` } };
+    if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    const r = await fetch(url, opts);
+    if (!r.ok) { const t = await r.text().catch(() => r.status); throw new Error(`Drive ${r.status}: ${t}`); }
+    return r.status === 204 ? null : r.json();
+  },
+
+  /* ファイル本体を取得 */
+  async _gMedia(fileId) {
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { Authorization: `Bearer ${this._gdriveToken}` },
+    });
+    if (!r.ok) throw new Error(`Drive media ${r.status}`);
+    return r.json();
+  },
+
+  /* ファイル本体を上書き */
+  async _gUpload(fileId, data) {
+    const r = await fetch(
+      `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+      { method: 'PATCH', headers: { Authorization: `Bearer ${this._gdriveToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(data) }
+    );
+    if (!r.ok) throw new Error(`Drive upload ${r.status}`);
+    return r.json();
+  },
+
+  /* 新規ファイルをメタデータ+コンテンツで作成 */
+  async _gCreateFile(name, parentId, initData) {
+    const boundary = 'achievia_mp';
+    const meta = JSON.stringify({ name, mimeType: 'application/json', parents: [parentId] });
+    const content = JSON.stringify(initData);
+    const mp = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
+    const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this._gdriveToken}`, 'Content-Type': `multipart/related; boundary="${boundary}"` },
+      body: mp,
+    });
+    if (!r.ok) throw new Error(`Drive create ${r.status}`);
+    return r.json();
+  },
+
+  /* Drive 上の Achievia/data.json を見つけるか新規作成 */
+  async _gFindOrCreate() {
+    // キャッシュ済み fileId を検証
+    const cached = localStorage.getItem('achievia_gdrive_file_id');
+    if (cached) {
+      try {
+        await this._gReq('GET', `files/${cached}`, { fields: 'id' });
+        this._gdriveFileId = cached; return;
+      } catch { localStorage.removeItem('achievia_gdrive_file_id'); }
+    }
+    // Achievia フォルダを検索
+    const fRes = await this._gReq('GET', 'files', {
+      q: `name='Achievia' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'files(id)',
+    });
+    let folderId;
+    if (fRes.files.length) {
+      folderId = fRes.files[0].id;
+      // data.json を検索
+      const dRes = await this._gReq('GET', 'files', {
+        q: `name='data.json' and '${folderId}' in parents and trashed=false`,
+        fields: 'files(id)',
+      });
+      if (dRes.files.length) {
+        this._gdriveFileId = dRes.files[0].id;
+        localStorage.setItem('achievia_gdrive_file_id', this._gdriveFileId); return;
+      }
+    } else {
+      // Achievia フォルダを作成
+      const folder = await this._gReq('POST', 'files', null, {
+        name: 'Achievia', mimeType: 'application/vnd.google-apps.folder',
+      });
+      folderId = folder.id;
+    }
+    // data.json を作成
+    const file = await this._gCreateFile('data.json', folderId, this._defaultData());
+    this._gdriveFileId = file.id;
+    localStorage.setItem('achievia_gdrive_file_id', this._gdriveFileId);
+  },
+
+  /* 初回接続（アカウント選択あり） */
+  async connectGDrive() {
+    this._gdriveToken = await this._gToken('select_account');
+    await this._gFindOrCreate();
+    await this.loadGDrive();
+  },
+
+  /* 再接続（既存セッションを優先） */
+  async reconnectGDrive() {
+    this._gdriveToken = await this._gToken('');
+    await this._gFindOrCreate();
+    await this.loadGDrive();
+  },
+
+  async loadGDrive() {
+    try {
+      const parsed = await this._gMedia(this._gdriveFileId);
+      this._data = { ...this._defaultData(), ...parsed };
+    } catch { this._data = this._defaultData(); }
+  },
+
+  async saveGDrive() {
+    if (!this._gdriveFileId || !this._gdriveToken) return;
+    try {
+      this._data.lastSavedAt = new Date().toISOString();
+      await this._gUpload(this._gdriveFileId, this._data);
+    } catch (e) {
+      console.error('GDrive save error:', e);
+      if (String(e.message).includes('401')) _showGDriveExpiredToast();
+    }
+  },
+
+  /* 切断（別ファイルへの切り替え時などに使用） */
+  disconnectGDrive() {
+    localStorage.removeItem('achievia_gdrive_file_id');
+    this._gdriveFileId = null; this._gdriveToken = null; this._data = null;
+  },
 };
 
 // ============================================================
@@ -2726,8 +2902,15 @@ function renderSettings() {
       <button class="btn btn-primary btn-sm" onclick="doAddProj()">追加</button>
     </div>`;
 
+  const gdriveSection = Storage._mode === 'gdrive' ? `
+    <div style="margin-bottom:16px;padding:12px 14px;background:var(--gray-50);border-radius:8px;border:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-700);margin-bottom:6px">Google Drive 接続</div>
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">ファイルID: <code style="font-size:11px">${Storage._gdriveFileId || '—'}</code></div>
+      <button class="btn btn-sm" onclick="doDisconnectGDrive()">切断（別ファイルに切り替え）</button>
+    </div>` : '';
   document.getElementById('settings-data').innerHTML = `
     <h3>データ管理</h3>
+    ${gdriveSection}
     <div class="data-stats">
       <div class="stat-item"><div class="stat-num">${d.tasks.length}</div><div class="stat-label">タスク</div></div>
       <div class="stat-item"><div class="stat-num">${d.projects.length}</div><div class="stat-label">プロジェクト</div></div>
@@ -2745,6 +2928,11 @@ function doAddProj() {
   // 名前入力欄の値をモーダルにプリセットして開く
   const n = document.getElementById('proj-name')?.value.trim() || '';
   openNewProjectModal(n || undefined);
+}
+function doDisconnectGDrive() {
+  if (!confirm('Google Drive との接続を切断します。再接続すると別のファイルを選択できます。')) return;
+  Storage.disconnectGDrive();
+  location.reload();
 }
 function doDeleteAll() {
   if (!confirm('全データを削除しますか？この操作は取り消せません。')) return;
@@ -4585,6 +4773,14 @@ function setVaultUI(connected) {
 // ============================================================
 // CONNECT SCREEN
 // ============================================================
+function _showGDriveExpiredToast() {
+  const t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:9999;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.2)';
+  t.textContent = '接続が切れました。再読み込みしてサインインしてください。';
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 6000);
+}
+
 function showConnect(title, desc, btnText, action) {
   document.getElementById('connect-screen').style.display = '';
   document.getElementById('app').style.display = 'none';
@@ -4612,6 +4808,26 @@ async function init() {
       'データを読み込むために、Vaultフォルダへのアクセスを再度許可してください。',
       'アクセスを許可する',
       async () => { if (await Storage.requestPermission()) showApp(); }
+    );
+  } else if (result === 'gdrive-restore') {
+    showConnect(
+      'Google Driveに再接続',
+      'データを読み込むために、Googleアカウントへのサインインが必要です。',
+      'Googleでサインイン',
+      async () => {
+        try { await Storage.reconnectGDrive(); showApp(); }
+        catch (e) { alert('接続に失敗しました: ' + e.message); }
+      }
+    );
+  } else if (result === 'gdrive-new') {
+    showConnect(
+      'Google Driveに接続',
+      'Googleアカウントにサインインして、タスクデータをGoogle Driveに保存します。<br><small style="color:var(--gray-400)">データは Google Drive の <code>Achievia/data.json</code> に保存されます。</small>',
+      'Googleでサインイン',
+      async () => {
+        try { await Storage.connectGDrive(); showApp(); }
+        catch (e) { alert('接続に失敗しました: ' + e.message); }
+      }
     );
   } else {
     showConnect(
