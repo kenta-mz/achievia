@@ -960,13 +960,22 @@ const Storage = {
 
   /* ---- Load / Save ---- */
   async load() {
+    let dir;
     try {
-      const dir = await this._getDir(['Achievia']);
+      dir = await this._getDir(['Achievia']);
+    } catch (e) {
+      // Vault フォルダにアクセスできない（ハンドルが無効・移動済み等）
+      // tryRestore() の catch に伝播させ、接続画面を表示させる
+      this._data = this._defaultData();
+      throw e;
+    }
+    try {
       const fh = await dir.getFileHandle('data.json');
       const text = await (await fh.getFile()).text();
       const parsed = JSON.parse(text);
       this._data = { ...this._defaultData(), ...parsed };
     } catch {
+      // data.json が存在しない（初回接続）→ デフォルトデータで初期化
       this._data = this._defaultData();
     }
   },
