@@ -2397,7 +2397,7 @@ function handleSomedayAdd() {
   d.tasks.push({ id: genId(), type: 'task', title, notes,
     projectId: _somedayProjectId, workType: _somedayWorkTypeId,
     priority: 'medium', estimatedHours: 1, actualHours: null, partialHours: [],
-    startTime: null, deadline: null, status: 'pending', tagIds: [], scheduledDate: null,
+    startTime: null, endTime: null, deadline: null, status: 'pending', tagIds: [], scheduledDate: null,
     recurring: null, recurringId: null, order: d.tasks.length,
     completedAt: null, createdAt: new Date().toISOString() });
   commit();
@@ -4310,6 +4310,18 @@ function openEditModal(id) {
         ${(() => { const p = _predictHoursData(task.title); return p ? `<div style="font-size:11px;color:var(--pri-400);margin-top:3px">☆ 過去${p.count}件：平均 ${p.avg}h</div>` : ''; })()}
       </div>
     </div>
+    <div class="em-grid" style="margin-top:12px">
+      <div class="em-field" style="margin:0">
+        <label>開始時刻</label>
+        <select id="em-starttime" onchange="_onEmStartTimeChange()">${_startTimeOpts(task.startTime)}</select>
+      </div>
+      <div class="em-field" style="margin:0">
+        <label>終了時刻</label>
+        <select id="em-endtime" onchange="_onEmEndTimeChange()"${task.estimatedHoursMode==='daily'?' disabled':''}>
+          ${_endTimeOpts(task.endTime || _calcEndTimeVal(task.startTime, task.estimatedHours))}
+        </select>
+      </div>
+    </div>
     <div class="em-row" style="margin-top:12px">
       <div class="em-field" style="flex:1">
         <label>ステータス</label>
@@ -4359,6 +4371,7 @@ function openEditModal(id) {
   document.getElementById('task-edit-modal').style.display = 'flex';
   document.getElementById('em-title').focus();
   _initEmHoursDailyRows(task);
+  _emLastEdited = null;
 }
 
 function openNewTaskModal() {
@@ -4419,6 +4432,16 @@ function openNewTaskModal() {
         ${_buildEmHoursUI(null)}
       </div>
     </div>
+    <div class="em-grid" style="margin-top:12px">
+      <div class="em-field" style="margin:0">
+        <label>開始時刻</label>
+        <select id="em-starttime" onchange="_onEmStartTimeChange()">${_startTimeOpts('')}</select>
+      </div>
+      <div class="em-field" style="margin:0">
+        <label>終了時刻</label>
+        <select id="em-endtime" onchange="_onEmEndTimeChange()">${_endTimeOpts('')}</select>
+      </div>
+    </div>
     <div class="em-field" style="margin-top:12px">
       <label>メモ</label>
       <textarea id="em-notes" rows="3"></textarea>
@@ -4461,6 +4484,7 @@ function openNewTaskModal() {
   document.getElementById('task-edit-modal').style.display = 'flex';
   setTimeout(() => document.getElementById('em-title')?.focus(), 0);
   _initEmHoursDailyRows(null);
+  _emLastEdited = null;
 }
 
 function closeEditModal() {
@@ -4624,6 +4648,8 @@ function saveEditModal() {
       estimatedHoursMode: _emMode,
       estimatedHoursByDate: _emByDate,
       actualHours: null, partialHours: [], status: 'pending', tagIds: [],
+      startTime: document.getElementById('em-starttime')?.value || null,
+      endTime:   document.getElementById('em-endtime')?.value   || null,
       scheduledDate, order: d.tasks.length,
       completedAt: null, createdAt: new Date().toISOString()
     };
@@ -4677,6 +4703,8 @@ function saveEditModal() {
     ? (_emByDate2.reduce((s, p) => s + p.hours, 0) || 1)
     : parseFloat(document.getElementById('em-hours')?.value || '1');
   task.notes         = document.getElementById('em-notes')?.value     || '';
+  task.startTime     = document.getElementById('em-starttime')?.value || null;
+  task.endTime       = document.getElementById('em-endtime')?.value   || null;
   const newStatus = document.getElementById('em-status')?.value;
   if (newStatus && task.status !== 'completed') task.status = newStatus;
 
@@ -4713,6 +4741,73 @@ function saveEditModal() {
 }
 
 // ============================================================
+// START TIME / END TIME
+// ============================================================
+
+let _emLastEdited = null; // 'estimatedHours' | 'endTime'
+
+function _timeOpts(from, to, selected) {
+  let s = '<option value="">自動</option>';
+  for (let m = from; m <= to; m += 30) {
+    const t = `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+    s += `<option value="${t}"${selected===t?' selected':''}>${t}</option>`;
+  }
+  return s;
+}
+function _startTimeOpts(sel) { return _timeOpts(9*60, 20*60+30, sel||''); }
+function _endTimeOpts(sel)   { return _timeOpts(9*60+30, 23*60+30, sel||''); }
+
+// startTime + estimatedHours → endTime（30分切り捨て）
+function _calcEndTimeVal(startTime, estimatedHours) {
+  if (!startTime) return null;
+  if (!estimatedHours || estimatedHours <= 0) return null;
+  const toM = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
+  const startMins = toM(startTime);
+  const endMins = Math.floor((startMins + Math.round(estimatedHours * 60)) / 30) * 30;
+  if (endMins > 23*60+30 || endMins <= startMins) return null;
+  return `${String(Math.floor(endMins/60)).padStart(2,'0')}:${String(endMins%60).padStart(2,'0')}`;
+}
+
+function _onEmStartTimeChange() {
+  const startTime = document.getElementById('em-starttime')?.value || null;
+  if (_emLastEdited === 'endTime') {
+    // 終了時刻が最後に編集された → 予定時間を逆算
+    const endTime = document.getElementById('em-endtime')?.value || null;
+    if (startTime && endTime) {
+      const toM = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
+      const diff = toM(endTime) - toM(startTime);
+      if (diff > 0) { const el = document.getElementById('em-hours'); if (el) el.value = diff/60; }
+    }
+  } else {
+    // 予定時間が最後に編集された（または初期状態）→ 終了時刻を計算
+    const hoursEl = document.getElementById('em-hours');
+    const h = hoursEl ? parseFloat(hoursEl.value) : null;
+    const endEl = document.getElementById('em-endtime');
+    if (endEl) endEl.value = _calcEndTimeVal(startTime, h) || '';
+  }
+}
+
+function _onEmEndTimeChange() {
+  _emLastEdited = 'endTime';
+  const startTime = document.getElementById('em-starttime')?.value || null;
+  const endTime   = document.getElementById('em-endtime')?.value   || null;
+  if (startTime && endTime) {
+    const toM = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
+    const diff = toM(endTime) - toM(startTime);
+    if (diff > 0) { const el = document.getElementById('em-hours'); if (el) el.value = diff/60; }
+  }
+}
+
+function _onEmEstimatedHoursChange() {
+  _emLastEdited = 'estimatedHours';
+  const startTime = document.getElementById('em-starttime')?.value || null;
+  const hoursEl   = document.getElementById('em-hours');
+  const h = hoursEl ? parseFloat(hoursEl.value) : null;
+  const endEl = document.getElementById('em-endtime');
+  if (endEl) endEl.value = _calcEndTimeVal(startTime, h) || '';
+}
+
+// ============================================================
 // ESTIMATED HOURS MODE (total / daily)
 // ============================================================
 function _emHoursSelectOpts(selected) {
@@ -4741,6 +4836,8 @@ function toggleEmHoursMode() {
     daily.style.display = '';
     btn.textContent = '合計で入力 ▼';
   }
+  const endTimeEl = document.getElementById('em-endtime');
+  if (endTimeEl) endTimeEl.disabled = total.style.display === 'none';
   _updateEmHoursSum();
 }
 
@@ -4794,7 +4891,7 @@ function _buildEmHoursUI(task) {
       </button>
     </div>
     <div id="em-hours-total" style="${mode==='daily'?'display:none':''}">
-      <select id="em-hours">${hOpts}</select>
+      <select id="em-hours" onchange="_onEmEstimatedHoursChange()">${hOpts}</select>
     </div>
     <div id="em-hours-daily" style="${mode==='total'?'display:none':''}">
       <div id="em-hours-daily-rows"></div>
