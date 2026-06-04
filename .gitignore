@@ -1,0 +1,6 @@
+# Achievia personal data — do not commit
+data.json
+daily/
+
+# macOS
+.DS_Store
