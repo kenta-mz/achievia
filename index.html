@@ -1127,40 +1127,75 @@ const Storage = {
         this._gdriveFileId = cached; return;
       } catch { localStorage.removeItem('achievia_gdrive_file_id'); }
     }
-    // すべての Achievia フォルダを検索
-    const fRes = await this._gReq('GET', 'files', {
-      q: `name='Achievia' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: 'files(id)',
-    });
-    // 各フォルダ内の data.json を全列挙し、最もサイズが大きいものを選ぶ
-    let bestId = null, bestSize = -1;
-    for (const folder of fRes.files) {
-      const dRes = await this._gReq('GET', 'files', {
-        q: `name='data.json' and '${folder.id}' in parents and trashed=false`,
-        fields: 'files(id,size)',
-      });
-      for (const f of dRes.files) {
-        const sz = parseInt(f.size || '0', 10);
-        if (sz > bestSize) { bestSize = sz; bestId = f.id; }
+
+    const cachedFolder = localStorage.getItem('achievia_gdrive_folder_id');
+
+    // キャッシュ済みフォルダ＋全フォルダ検索を行い最大サイズの data.json を返す
+    const _search = async () => {
+      // キャッシュされたフォルダを優先検索
+      if (cachedFolder) {
+        try {
+          const dRes = await this._gReq('GET', 'files', {
+            q: `name='data.json' and '${cachedFolder}' in parents and trashed=false`,
+            fields: 'files(id,size)',
+          });
+          if (dRes.files.length) {
+            const best = dRes.files.reduce((a, b) => parseInt(b.size||0,10) > parseInt(a.size||0,10) ? b : a);
+            return { fileId: best.id, folderId: cachedFolder };
+          }
+        } catch {}
       }
-    }
-    if (bestId) {
-      this._gdriveFileId = bestId;
-      localStorage.setItem('achievia_gdrive_file_id', this._gdriveFileId); return;
-    }
-    // 見つからない場合は新規作成
-    let folderId;
-    if (fRes.files.length) {
-      folderId = fRes.files[0].id;
-    } else {
-      const folder = await this._gReq('POST', 'files', null, {
-        name: 'Achievia', mimeType: 'application/vnd.google-apps.folder',
+      // 全 Achievia フォルダを検索
+      const fRes = await this._gReq('GET', 'files', {
+        q: `name='Achievia' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: 'files(id)',
       });
-      folderId = folder.id;
+      let bestId = null, bestSize = -1, bestFolderId = null;
+      for (const folder of fRes.files) {
+        const dRes = await this._gReq('GET', 'files', {
+          q: `name='data.json' and '${folder.id}' in parents and trashed=false`,
+          fields: 'files(id,size)',
+        });
+        for (const f of dRes.files) {
+          const sz = parseInt(f.size || '0', 10);
+          if (sz > bestSize) { bestSize = sz; bestId = f.id; bestFolderId = folder.id; }
+        }
+      }
+      return bestId ? { fileId: bestId, folderId: bestFolderId } : { folders: fRes.files };
+    };
+
+    // 1回目の検索
+    let result = await _search();
+    // 見つからなければ3秒待ってリトライ（Drive インデックス遅延対応）
+    if (!result.fileId) {
+      await new Promise(r => setTimeout(r, 3000));
+      result = await _search();
+    }
+
+    if (result.fileId) {
+      this._gdriveFileId = result.fileId;
+      localStorage.setItem('achievia_gdrive_file_id', result.fileId);
+      localStorage.setItem('achievia_gdrive_folder_id', result.folderId);
+      return;
+    }
+
+    // それでも見つからない場合のみ新規作成
+    let folderId = cachedFolder;
+    if (!folderId) {
+      const existingFolders = result.folders || [];
+      if (existingFolders.length) {
+        folderId = existingFolders[0].id;
+      } else {
+        const folder = await this._gReq('POST', 'files', null, {
+          name: 'Achievia', mimeType: 'application/vnd.google-apps.folder',
+        });
+        folderId = folder.id;
+      }
     }
     const file = await this._gCreateFile('data.json', folderId, this._defaultData());
     this._gdriveFileId = file.id;
-    localStorage.setItem('achievia_gdrive_file_id', this._gdriveFileId);
+    localStorage.setItem('achievia_gdrive_file_id', file.id);
+    localStorage.setItem('achievia_gdrive_folder_id', folderId);
   },
 
   /* 初回接続（アカウント選択あり） */
@@ -1198,6 +1233,7 @@ const Storage = {
   /* 切断（別ファイルへの切り替え時などに使用） */
   disconnectGDrive() {
     localStorage.removeItem('achievia_gdrive_file_id');
+    localStorage.removeItem('achievia_gdrive_folder_id');
     this._gdriveFileId = null; this._gdriveToken = null; this._data = null;
   },
 };
