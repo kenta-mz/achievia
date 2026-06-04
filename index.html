@@ -1030,7 +1030,11 @@ const Storage = {
   _gdriveToken: null,
   _gdriveFileId: null,
 
-  get _hasFSA() { return typeof window.showDirectoryPicker === 'function'; },
+  get _hasFSA() {
+    // Android / iOS はローカル Vault にアクセスできないため GDrive モードを使う
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return false;
+    return typeof window.showDirectoryPicker === 'function';
+  },
 
   /* GIS ライブラリを必要時だけ動的ロード */
   async _ensureGIS() {
