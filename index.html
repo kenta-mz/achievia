@@ -1745,6 +1745,7 @@ function renderHero() {
         <button class="${viewMode==='timeline'?'active':''}" onclick="setView('timeline')">タイムライン</button>
       </div>
     </div>
+    ${viewMode !== 'timeline' ? `
     <div class="hero-hours-row">
       <span class="hero-hours-big">${doneH}h</span>
       <span class="hero-hours-total">/ ${totalH}h</span>
@@ -1753,7 +1754,7 @@ function renderHero() {
       <div class="progress-bar" style="flex:1;margin-bottom:0"><div class="progress-fill" style="width:${pct}%"></div></div>
       <span class="hero-pct">${pct}%</span>
     </div>
-    <div class="hero-count" style="margin-bottom:0">完了 ${done.length} / ${todayTasks.length} 件</div>
+    <div class="hero-count" style="margin-bottom:0">完了 ${done.length} / ${todayTasks.length} 件</div>` : ''}
   `;
 }
 function setView(mode) { viewMode = mode; render(); }
