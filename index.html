@@ -293,19 +293,42 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px 24px 24px; }
 .past-section-header:hover { color: var(--gray-600); }
 
 /* ── Timeline ── */
-.timeline-wrap { position: relative; padding-left: 52px; min-height: 700px; }
+.timeline-wrap { position: relative; padding-left: 52px; }
 .timeline-hours { position: absolute; left: 0; top: 0; width: 44px; }
 .timeline-hour-label {
   height: 50px; font-size: 11px; color: var(--gray-500);
   display: flex; align-items: flex-start; justify-content: flex-end;
   padding-right: 8px; padding-top: 2px;
 }
-.timeline-grid { position: relative; }
+.timeline-grid { position: relative; height: 800px; }
 .timeline-grid-line { height: 50px; border-top: 1px solid var(--gray-100); }
 .timeline-task {
-  position: absolute; left: 4px; right: 4px; background: var(--ink); color: #fff;
-  border-radius: 8px; padding: 6px 10px; font-size: 12px; overflow: hidden; min-height: 24px;
+  position: absolute; background: var(--ink); color: #fff;
+  border-radius: 6px; padding: 5px 8px; font-size: 12px; overflow: hidden;
+  box-sizing: border-box; cursor: pointer; transition: filter .15s;
 }
+.timeline-task:hover { filter: brightness(1.12); }
+.timeline-task.done { opacity: 0.4; }
+.timeline-now-line {
+  position: absolute; left: 0; right: 0; height: 2px;
+  background: #ef4444; z-index: 2; pointer-events: none;
+}
+.timeline-now-line::before {
+  content: ''; position: absolute; left: -5px; top: -4px;
+  width: 10px; height: 10px; background: #ef4444; border-radius: 50%;
+}
+.timeline-unscheduled { margin-top: 16px; border-top: 1px solid var(--gray-100); padding-top: 12px; }
+.timeline-unscheduled-title {
+  font-size: 11px; color: var(--gray-400); margin-bottom: 8px;
+  font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.timeline-unsched-task {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px;
+  margin-bottom: 4px; cursor: pointer; background: #fff; font-size: 12px;
+}
+.timeline-unsched-task:hover { background: var(--gray-50); border-color: var(--gray-200); }
+.timeline-unsched-task.done { opacity: 0.5; }
 
 /* ── Notes Panel ── */
 .notes-panel {
@@ -2098,38 +2121,95 @@ function toggleSec(key) {
 // ============================================================
 function renderTimeline(d) {
   const t = todayStr();
-  const tasks = d.tasks.filter(x => x.scheduledDate === t && x.type !== 'divider').sort((a,b) => a.order - b.order);
-  const hours = Array.from({length:14},(_,i)=>i+9);
+  const TL_START = 7, TL_END = 23, PX = 50;
+  const toM = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 
-  let slot = 0;
-  const cards = tasks.map(task => {
-    const h = task.estimatedHours || 1;
-    const top = slot * 50, height = Math.max(h * 50 - 4, 24);
-    slot += h;
+  const todayTasks = d.tasks.filter(x => x.scheduledDate === t && x.type !== 'divider');
+  const withTime   = todayTasks.filter(x => x.startTime).sort((a, b) => a.startTime.localeCompare(b.startTime) || a.order - b.order);
+  const noTime     = todayTasks.filter(x => !x.startTime).sort((a, b) => a.order - b.order);
+
+  // Greedy column assignment + overlap-aware width/left calculation
+  function calcLayout(tasks) {
+    const items = tasks.map(task => {
+      const startM = toM(task.startTime);
+      const durM   = Math.max(Math.round((task.estimatedHours || 0.5) * 60), 30);
+      return { task, startM, endM: startM + durM, col: 0 };
+    });
+    const colEnds = [];
+    items.forEach(item => {
+      let col = colEnds.findIndex(e => e <= item.startM);
+      if (col === -1) { col = colEnds.length; }
+      colEnds[col] = item.endM;
+      item.col = col;
+    });
+    return items.map(item => {
+      const overlap  = items.filter(o => o !== item && o.startM < item.endM && o.endM > item.startM);
+      const maxCol   = overlap.length ? Math.max(item.col, ...overlap.map(o => o.col)) : item.col;
+      const totalCols = maxCol + 1;
+      const top      = (item.startM - TL_START * 60) / 60 * PX;
+      const height   = Math.max((item.endM - item.startM) / 60 * PX - 4, 28);
+      const wPct     = totalCols > 1 ? 100 / totalCols : 100;
+      const lPct     = totalCols > 1 ? item.col / totalCols * 100 : 0;
+      return { task: item.task, top, height, wPct, lPct };
+    });
+  }
+
+  const layouts = calcLayout(withTime);
+
+  // Current time line
+  const now = new Date();
+  const nowM = now.getHours() * 60 + now.getMinutes();
+  const nowTop = (nowM - TL_START * 60) / 60 * PX;
+  const showNow = nowM >= TL_START * 60 && nowM <= TL_END * 60;
+
+  const hours = Array.from({ length: TL_END - TL_START }, (_, i) => i + TL_START);
+
+  function tlCard(task, style) {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
-    return `<div class="timeline-task" data-id="${task.id}"
-      style="top:${top}px;height:${height}px;cursor:pointer;opacity:${done?'.5':'1'}"
+    const timeLabel = task.startTime
+      ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${task.estimatedHours}h`
+      : `${task.estimatedHours}h`;
+    return `<div class="timeline-task${done ? ' done' : ''}" data-id="${task.id}"
+      style="${style}"
       draggable="true"
       ondragstart="handleDragStart(event,'${task.id}')"
       ondragend="handleDragEnd(event)"
-      ondragover="handleDragOver(event)"
-      ondrop="handleDropOnTask(event,'${task.id}','${task.scheduledDate || ''}')"
-      onclick="toggleTask('${task.id}')">
-      <div style="font-weight:600;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${done?'text-decoration:line-through':''}">${esc(task.title)}</div>
-      ${proj ? `<div style="font-size:10px;opacity:.65">${esc(proj.name)}</div>` : ''}
-      <div style="font-size:10px;opacity:.65">${task.estimatedHours}h</div>
+      onclick="openEditModal('${task.id}')">
+      <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(task.title)}</div>
+      ${proj ? `<div style="font-size:10px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(proj.name)}</div>` : ''}
+      <div style="font-size:10px;opacity:.55">${timeLabel}</div>
+    </div>`;
+  }
+
+  const gridCards = layouts.map(({ task, top, height, wPct, lPct }) =>
+    tlCard(task, `top:${top}px;height:${height}px;left:calc(${lPct}% + 2px);width:calc(${wPct}% - 4px)`)
+  ).join('');
+
+  const unschedCards = noTime.map(task => {
+    const proj = d.projects.find(p => p.id === task.projectId);
+    const done = task.status === 'completed';
+    return `<div class="timeline-unsched-task${done ? ' done' : ''}" onclick="openEditModal('${task.id}')">
+      <span style="font-size:12px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(task.title)}</span>
+      ${proj ? `<span class="task-tag" style="background:${proj.color}22;color:${proj.color};flex-shrink:0">${esc(proj.name)}</span>` : ''}
+      <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${task.estimatedHours || '?'}h</span>
     </div>`;
   }).join('');
 
   return `<div style="padding:12px">
     <div class="timeline-wrap">
-      <div class="timeline-hours">${hours.map(h=>`<div class="timeline-hour-label">${h}:00</div>`).join('')}</div>
+      <div class="timeline-hours">${hours.map(h => `<div class="timeline-hour-label">${h}:00</div>`).join('')}</div>
       <div class="timeline-grid">
-        ${hours.map(()=>`<div class="timeline-grid-line"></div>`).join('')}
-        ${cards}
+        ${hours.map(() => `<div class="timeline-grid-line"></div>`).join('')}
+        ${showNow ? `<div class="timeline-now-line" style="top:${nowTop}px"></div>` : ''}
+        ${gridCards}
       </div>
     </div>
+    ${noTime.length ? `
+    <div class="timeline-unscheduled">
+      <div class="timeline-unscheduled-title">時刻未設定 (${noTime.length}件)</div>
+      ${unschedCards}
+    </div>` : ''}
   </div>`;
 }
 
@@ -4739,8 +4819,8 @@ function _timeOpts(from, to, selected) {
   }
   return s;
 }
-function _startTimeOpts(sel) { return _timeOpts(9*60, 20*60+30, sel||''); }
-function _endTimeOpts(sel)   { return _timeOpts(9*60+30, 23*60+30, sel||''); }
+function _startTimeOpts(sel) { return _timeOpts(7*60, 22*60, sel||''); }
+function _endTimeOpts(sel)   { return _timeOpts(7*60+30, 23*60+30, sel||''); }
 
 // startTime + estimatedHours → endTime（30分切り捨て）
 function _calcEndTimeVal(startTime, estimatedHours) {
