@@ -3842,7 +3842,7 @@ function _getQsItems(triggerChar, query) {
       { id: todayStr(),    type: 'date', label: '今日',    hint: todayStr() },
       { id: addDays(1),    type: 'date', label: '明日',    hint: addDays(1) },
       { id: addDays(7),    type: 'date', label: '1週間後', hint: addDays(7) },
-      { id: '__someday',   type: 'date', label: '📌 未来', hint: 'いつかやる' },
+      { id: '__someday',   type: 'date', label: '📌 未定', hint: 'いつかやる' },
     ];
     return presets.filter(p => !q || p.label.includes(q) || (p.hint && p.hint.includes(q)));
   }
@@ -3973,7 +3973,7 @@ function _renderQaChips() {
     );
   }
   if (_qaDate !== void 0) {
-    const label = _qaDate === null ? '📌 未来' : `📅 ${_qaDate}`;
+    const label = _qaDate === null ? '📌 未定' : `📅 ${_qaDate}`;
     parts.push(
       `<span class="qa-chip">${esc(label)}<button class="qa-chip-remove" onmousedown="event.preventDefault();_qaRemoveChip('date')">×</button></span>`
     );
@@ -4285,48 +4285,9 @@ function openEditModal(id) {
         <input type="date" id="em-date" value="${task.scheduledDate||''}" style="flex:1;min-width:100px" ${!task.scheduledDate?'disabled':''}>
         <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--gray-600);white-space:nowrap">
           <input type="checkbox" id="em-someday" ${!task.scheduledDate?'checked':''} onchange="document.getElementById('em-date').disabled=this.checked">
-          📌 未来
-        </label>
-        <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--gray-600);cursor:pointer;white-space:nowrap">
-          <input type="checkbox" id="em-recurring-toggle" ${hasRec?'checked':''} onchange="toggleEmRecurringUI()">
-          🔁 繰り返し
+          未定
         </label>
       </div>
-    </div>
-    <div id="em-recurring-settings" style="${hasRec?'':'display:none'}">
-      <div class="em-field" style="margin:8px 0 8px">
-        <label>頻度</label>
-        <select id="em-freq" onchange="toggleEmFreqDays()">${freqOpts}</select>
-      </div>
-      <div id="em-days-wrap" style="${(rec.frequency==='weekly'||rec.frequency==='biweekly')?'':'display:none'}">
-        <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px">曜日</div>
-        <div class="em-day-btns">${dayBtns}</div>
-      </div>
-      <div class="em-grid" style="margin-top:8px">
-        <div class="em-field" style="margin:0">
-          <label>開始日</label>
-          <input type="date" id="em-startdate" value="${rec.startDate||todayStr()}">
-        </div>
-        <div class="em-field" style="margin:0">
-          <label>終了日（任意）</label>
-          <input type="date" id="em-enddate" value="${rec.endDate||''}">
-        </div>
-      </div>
-    </div>
-    <div class="em-grid" style="margin-top:12px">
-      <div class="em-field" style="margin:0">
-        <label>プロジェクト</label>
-        <select id="em-project">${projOpts}</select>
-      </div>
-      <div class="em-field" style="margin:0">
-        <label>作業種類</label>
-        <select id="em-worktype">${wtOpts}</select>
-      </div>
-    </div>
-    <div class="em-field" style="margin-top:12px">
-      <label>予定時間</label>
-      ${_buildEmHoursUI(task)}
-      ${(() => { const p = _predictHoursData(task.title); return p ? `<div style="font-size:11px;color:var(--pri-400);margin-top:3px">☆ 過去${p.count}件：平均 ${p.avg}h</div>` : ''; })()}
     </div>
     <div class="em-grid" style="margin-top:12px">
       <div class="em-field" style="margin:0">
@@ -4338,6 +4299,47 @@ function openEditModal(id) {
         <select id="em-endtime" onchange="_onEmEndTimeChange()"${task.estimatedHoursMode==='daily'?' disabled':''}>
           ${_endTimeOpts(task.endTime || _calcEndTimeVal(task.startTime, task.estimatedHours))}
         </select>
+      </div>
+    </div>
+    <div class="em-field" style="margin-top:12px">
+      <label>予定時間</label>
+      ${_buildEmHoursUI(task)}
+      ${(() => { const p = _predictHoursData(task.title); return p ? `<div style="font-size:11px;color:var(--pri-400);margin-top:3px">☆ 過去${p.count}件：平均 ${p.avg}h</div>` : ''; })()}
+    </div>
+    <div style="margin-top:12px">
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="em-recurring-toggle" ${hasRec?'checked':''} onchange="toggleEmRecurringUI()">
+        🔁 繰り返し
+      </label>
+      <div id="em-recurring-settings" style="${hasRec?'':'display:none'}">
+        <div class="em-field" style="margin:8px 0 8px">
+          <label>頻度</label>
+          <select id="em-freq" onchange="toggleEmFreqDays()">${freqOpts}</select>
+        </div>
+        <div id="em-days-wrap" style="${(rec.frequency==='weekly'||rec.frequency==='biweekly')?'':'display:none'}">
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px">曜日</div>
+          <div class="em-day-btns">${dayBtns}</div>
+        </div>
+        <div class="em-grid" style="margin-top:8px">
+          <div class="em-field" style="margin:0">
+            <label>開始日</label>
+            <input type="date" id="em-startdate" value="${rec.startDate||todayStr()}">
+          </div>
+          <div class="em-field" style="margin:0">
+            <label>終了日（任意）</label>
+            <input type="date" id="em-enddate" value="${rec.endDate||''}">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="em-grid" style="margin-top:12px">
+      <div class="em-field" style="margin:0">
+        <label>プロジェクト</label>
+        <select id="em-project">${projOpts}</select>
+      </div>
+      <div class="em-field" style="margin:0">
+        <label>作業種類</label>
+        <select id="em-worktype">${wtOpts}</select>
       </div>
     </div>
     <div class="em-grid" style="margin-top:12px">
@@ -4404,35 +4406,51 @@ function openNewTaskModal() {
         <input type="date" id="em-date" value="${isSomeday?'':defaultDate}" style="flex:1;min-width:100px" ${isSomeday?'disabled':''}>
         <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--gray-600);white-space:nowrap">
           <input type="checkbox" id="em-someday" ${isSomeday?'checked':''} onchange="document.getElementById('em-date').disabled=this.checked">
-          📌 未来
-        </label>
-        <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--gray-600);cursor:pointer;white-space:nowrap">
-          <input type="checkbox" id="em-recurring-toggle" onchange="toggleEmRecurringUI()">
-          🔁 繰り返し
+          未定
         </label>
       </div>
     </div>
-    <div id="em-recurring-settings" style="display:none">
-      <div class="em-field" style="margin:8px 0 8px">
-        <label>頻度</label>
-        <select id="em-freq" onchange="toggleEmFreqDays()">
-          <option value="daily">毎日</option><option value="weekdays">平日のみ</option>
-          <option value="weekly" selected>毎週</option><option value="biweekly">隔週</option>
-          <option value="monthly">毎月</option>
-        </select>
+    <div class="em-grid" style="margin-top:12px">
+      <div class="em-field" style="margin:0">
+        <label>開始時刻</label>
+        <select id="em-starttime" onchange="_onEmStartTimeChange()">${_startTimeOpts('')}</select>
       </div>
-      <div id="em-days-wrap">
-        <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px">曜日</div>
-        <div class="em-day-btns">${['日','月','火','水','木','金','土'].map((n,i)=>`<button type="button" class="em-day-btn${i===1?' active':''}" onclick="toggleEmDay(${i})" id="em-day-${i}">${n}</button>`).join('')}</div>
+      <div class="em-field" style="margin:0">
+        <label>終了時刻</label>
+        <select id="em-endtime" onchange="_onEmEndTimeChange()">${_endTimeOpts('')}</select>
       </div>
-      <div class="em-grid" style="margin-top:8px">
-        <div class="em-field" style="margin:0">
-          <label>開始日</label>
-          <input type="date" id="em-startdate" value="${todayStr()}">
+    </div>
+    <div class="em-field" style="margin-top:12px">
+      <label>予定時間</label>
+      ${_buildEmHoursUI(null)}
+    </div>
+    <div style="margin-top:12px">
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="em-recurring-toggle" onchange="toggleEmRecurringUI()">
+        🔁 繰り返し
+      </label>
+      <div id="em-recurring-settings" style="display:none">
+        <div class="em-field" style="margin:8px 0 8px">
+          <label>頻度</label>
+          <select id="em-freq" onchange="toggleEmFreqDays()">
+            <option value="daily">毎日</option><option value="weekdays">平日のみ</option>
+            <option value="weekly" selected>毎週</option><option value="biweekly">隔週</option>
+            <option value="monthly">毎月</option>
+          </select>
         </div>
-        <div class="em-field" style="margin:0">
-          <label>終了日（任意）</label>
-          <input type="date" id="em-enddate" value="">
+        <div id="em-days-wrap">
+          <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px">曜日</div>
+          <div class="em-day-btns">${['日','月','火','水','木','金','土'].map((n,i)=>`<button type="button" class="em-day-btn${i===1?' active':''}" onclick="toggleEmDay(${i})" id="em-day-${i}">${n}</button>`).join('')}</div>
+        </div>
+        <div class="em-grid" style="margin-top:8px">
+          <div class="em-field" style="margin:0">
+            <label>開始日</label>
+            <input type="date" id="em-startdate" value="${todayStr()}">
+          </div>
+          <div class="em-field" style="margin:0">
+            <label>終了日（任意）</label>
+            <input type="date" id="em-enddate" value="">
+          </div>
         </div>
       </div>
     </div>
@@ -4444,20 +4462,6 @@ function openNewTaskModal() {
       <div class="em-field" style="margin:0">
         <label>作業種類</label>
         <select id="em-worktype">${wtOpts}</select>
-      </div>
-    </div>
-    <div class="em-field" style="margin-top:12px">
-      <label>予定時間</label>
-      ${_buildEmHoursUI(null)}
-    </div>
-    <div class="em-grid" style="margin-top:12px">
-      <div class="em-field" style="margin:0">
-        <label>開始時刻</label>
-        <select id="em-starttime" onchange="_onEmStartTimeChange()">${_startTimeOpts('')}</select>
-      </div>
-      <div class="em-field" style="margin:0">
-        <label>終了時刻</label>
-        <select id="em-endtime" onchange="_onEmEndTimeChange()">${_endTimeOpts('')}</select>
       </div>
     </div>
     <div class="em-field" style="margin-top:12px">
