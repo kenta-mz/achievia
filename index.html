@@ -2204,6 +2204,11 @@ function renderTimeline(d) {
   }).join('');
 
   return `<div style="padding:12px">
+    ${noTime.length ? `
+    <div class="timeline-unscheduled" style="margin-top:0;border-top:none;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:12px;padding-top:0">
+      <div class="timeline-unscheduled-title">時刻未設定 (${noTime.length}件)</div>
+      ${unschedCards}
+    </div>` : ''}
     <div class="timeline-wrap">
       <div class="timeline-hours">${hours.map(h => `<div class="timeline-hour-label">${h}:00</div>`).join('')}</div>
       <div class="timeline-grid">
@@ -2212,11 +2217,6 @@ function renderTimeline(d) {
         ${gridCards}
       </div>
     </div>
-    ${noTime.length ? `
-    <div class="timeline-unscheduled">
-      <div class="timeline-unscheduled-title">時刻未設定 (${noTime.length}件)</div>
-      ${unschedCards}
-    </div>` : ''}
   </div>`;
 }
 
