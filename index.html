@@ -2206,7 +2206,7 @@ function renderTimeline(d) {
       const maxCol   = overlap.length ? Math.max(item.col, ...overlap.map(o => o.col)) : item.col;
       const totalCols = maxCol + 1;
       const top      = (item.startM - TL_START * 60) / 60 * PX;
-      const height   = Math.max((item.endM - item.startM) / 60 * PX - 4, 28);
+      const height   = Math.max((item.endM - item.startM) / 60 * PX, 28);
       const wPct     = totalCols > 1 ? 100 / totalCols : 100;
       const lPct     = totalCols > 1 ? item.col / totalCols * 100 : 0;
       return { task: item.task, top, height, wPct, lPct };
@@ -5212,6 +5212,7 @@ let _tlDragTimer      = null;
 let _tlDragging       = false;
 let _tlPointerType    = '';
 let _tlRecentDrag     = false;
+let _tlDragGrabOffsetY = 0;
 
 function _onTlTaskClick(e, taskId) {
   if (_tlRecentDrag) return;
@@ -5262,6 +5263,9 @@ function _onTlPointerDown(e) {
       ? toM(task.endTime)
       : _tlDragOrigStartM + Math.round((task.estimatedHours || 1) * 60);
 
+    // grab offset: pointer position relative to card top
+    _tlDragGrabOffsetY = e.clientY - card.getBoundingClientRect().top;
+
     _tlDragSource = card;
     card.classList.add('tl-dragging-source');
 
@@ -5299,7 +5303,7 @@ function _onTlPointerMove(e) {
     _tlDragGhost.style.left = (e.clientX + 8) + 'px';
     _tlDragGhost.style.top  = (e.clientY - 10) + 'px';
   }
-  const snapM = _tlYToSnapMinutes(e.clientY);
+  const snapM = _tlYToSnapMinutes(e.clientY - _tlDragGrabOffsetY);
   if (_tlSnapIndicator) {
     _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
   }
@@ -5310,7 +5314,7 @@ function _onTlPointerUp(e) {
   if (!_tlDragging) { _cleanupTlDrag(e.currentTarget); return; }
   _tlRecentDrag = true; setTimeout(() => { _tlRecentDrag = false; }, 400);
 
-  const newStartM = _tlYToSnapMinutes(e.clientY);
+  const newStartM = _tlYToSnapMinutes(e.clientY - _tlDragGrabOffsetY);
   const durM      = _tlDragOrigEndM - _tlDragOrigStartM;
   // clampedEnd 修正：durM を考慮して start をクリップ
   const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, newStartM));
@@ -5354,7 +5358,7 @@ function _cleanupTlDrag(card) {
     card.removeEventListener('pointercancel', _onTlPointerCancel);
   }
   _tlDragTaskId = null; _tlDragging = false; _tlDragTimer = null;
-  _tlDragOrigStartM = 0; _tlDragOrigEndM = 0; _tlPointerType = '';
+  _tlDragOrigStartM = 0; _tlDragOrigEndM = 0; _tlPointerType = ''; _tlDragGrabOffsetY = 0;
 }
 
 // ============================================================
