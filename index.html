@@ -296,16 +296,17 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px 24px 24px; }
 .timeline-wrap { position: relative; padding-left: 52px; }
 .timeline-hours { position: absolute; left: 0; top: 0; width: 44px; }
 .timeline-hour-label {
-  height: 50px; font-size: 11px; color: var(--gray-500);
+  height: 50px; font-size: 11px; color: var(--gray-400);
   display: flex; align-items: flex-start; justify-content: flex-end;
-  padding-right: 8px; padding-top: 2px;
+  padding-right: 8px; padding-top: 0;
 }
 .timeline-grid { position: relative; height: 800px; }
-.timeline-grid-line { height: 50px; border-top: 1px solid var(--gray-100); }
+.timeline-grid-line { height: 50px; border-top: 1px solid var(--gray-200); }
 .timeline-task {
   position: absolute; background: var(--ink); color: #fff;
   border-radius: 6px; padding: 5px 8px; font-size: 12px; overflow: hidden;
   box-sizing: border-box; cursor: pointer; transition: filter .15s;
+  touch-action: none;
 }
 .timeline-task:hover { filter: brightness(1.12); }
 .timeline-task.done { opacity: 0.4; }
@@ -2241,7 +2242,7 @@ function renderTimeline(d) {
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
       ${showAll ? timeLine : (!showSub ? '' : (proj ? '' : timeLine))}
-      ${h >= 40 ? `<div class="tl-resize-handle" data-resize-id="${task.id}"></div>` : ''}
+      <div class="tl-resize-handle" data-resize-id="${task.id}"></div>
     </div>`;
   }
 
@@ -4876,14 +4877,14 @@ let _emLastEdited = null; // 'estimatedHours' | 'endTime'
 
 function _timeOpts(from, to, selected) {
   let s = '<option value="">自動</option>';
-  for (let m = from; m <= to; m += 30) {
+  for (let m = from; m <= to; m += 15) {
     const t = `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
     s += `<option value="${t}"${selected===t?' selected':''}>${t}</option>`;
   }
   return s;
 }
 function _startTimeOpts(sel) { return _timeOpts(7*60, 22*60, sel||''); }
-function _endTimeOpts(sel)   { return _timeOpts(7*60+30, 23*60+30, sel||''); }
+function _endTimeOpts(sel)   { return _timeOpts(7*60+15, 23*60+45, sel||''); }
 
 // startTime + estimatedHours → endTime（30分切り捨て）
 function _calcEndTimeVal(startTime, estimatedHours) {
@@ -4891,8 +4892,8 @@ function _calcEndTimeVal(startTime, estimatedHours) {
   if (!estimatedHours || estimatedHours <= 0) return null;
   const toM = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
   const startMins = toM(startTime);
-  const endMins = Math.floor((startMins + Math.round(estimatedHours * 60)) / 30) * 30;
-  if (endMins > 23*60+30 || endMins <= startMins) return null;
+  const endMins = Math.floor((startMins + Math.round(estimatedHours * 60)) / 15) * 15;
+  if (endMins > 23*60+45 || endMins <= startMins) return null;
   return `${String(Math.floor(endMins/60)).padStart(2,'0')}:${String(endMins%60).padStart(2,'0')}`;
 }
 
@@ -5118,7 +5119,10 @@ function _onTaskTouchEnd(e) {
   _cleanupTouchDrag();
 }
 
-function _onTaskTouchCancel() { _cancelTouchDrag(); }
+function _onTaskTouchCancel() {
+  if (_touchDragging) _cleanupTouchDrag();
+  else _cancelTouchDrag();
+}
 
 function _createTouchGhost(row, clientX, clientY) {
   const ghost = document.createElement('div');
@@ -5325,7 +5329,7 @@ function _tlYToSnapMinutes(clientY) {
   if (!grid) return TL_START_M;
   const rect = grid.getBoundingClientRect();
   const rawM = TL_START_M + (clientY - rect.top) / TL_PX * 60;
-  return Math.round(rawM / 30) * 30;
+  return Math.round(rawM / 15) * 15;
 }
 
 function _cleanupTlDrag(card) {
@@ -5391,8 +5395,8 @@ function _onTlResizePointerMove(e) {
   if (!_tlResizing) return;
   e.preventDefault();
   const dy            = e.clientY - _tlResizeStartY;
-  const snappedDeltaM = Math.round((dy / TL_PX * 60) / 30) * 30;
-  let newEndM = Math.max(_tlResizeStartM + 30, Math.min(TL_END_M, _tlResizeOrigEndM + snappedDeltaM));
+  const snappedDeltaM = Math.round((dy / TL_PX * 60) / 15) * 15;
+  let newEndM = Math.max(_tlResizeStartM + 15, Math.min(TL_END_M, _tlResizeOrigEndM + snappedDeltaM));
   if (_tlResizeCard) {
     _tlResizeCard.style.height = Math.max((newEndM - _tlResizeStartM) / 60 * TL_PX - 4, 28) + 'px';
   }
