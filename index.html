@@ -327,6 +327,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px 24px 24px; }
   display: flex; align-items: center; gap: 8px;
   padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px;
   margin-bottom: 4px; cursor: pointer; background: #fff; font-size: 12px;
+  user-select: none; -webkit-user-select: none;
 }
 .timeline-unsched-task:hover { background: var(--gray-50); border-color: var(--gray-200); }
 .timeline-unsched-task.done { opacity: 0.5; }
@@ -2253,7 +2254,7 @@ function renderTimeline(d) {
   const unschedCards = noTime.map(task => {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
-    return `<div class="timeline-unsched-task${done ? ' done' : ''}" onclick="openEditModal('${task.id}')">
+    return `<div class="timeline-unsched-task${done ? ' done' : ''}" data-id="${task.id}" onclick="_onTlUnschedTaskClick(event,'${task.id}')">
       <span style="font-size:12px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(task.title)}</span>
       ${proj ? `<span class="task-tag" style="background:${proj.color}22;color:${proj.color};flex-shrink:0">${esc(proj.name)}</span>` : ''}
       <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${task.estimatedHours || '?'}h</span>
@@ -5218,6 +5219,10 @@ function _onTlTaskClick(e, taskId) {
   if (_tlRecentDrag) return;
   openEditModal(taskId);
 }
+function _onTlUnschedTaskClick(e, taskId) {
+  if (_tlRecentDrag) return;
+  openEditModal(taskId);
+}
 const TL_DRAG_DELAY   = 300;
 const TL_START_M      = 7 * 60;
 const TL_END_M        = 23 * 60;
@@ -5233,6 +5238,11 @@ function attachTimelineDragListeners() {
     if (handle._tlResizeBound) return;
     handle._tlResizeBound = true;
     handle.addEventListener('pointerdown', _onTlResizePointerDown, { passive: false });
+  });
+  document.querySelectorAll('.timeline-unsched-task').forEach(card => {
+    if (card._tlUnschedBound) return;
+    card._tlUnschedBound = true;
+    card.addEventListener('pointerdown', _onUnschedPointerDown, { passive: false });
   });
 }
 
@@ -5466,6 +5476,141 @@ function _cleanupTlResize(handle) {
   }
   _tlResizing = false; _tlResizeTaskId = null; _tlResizeCard = null;
   _tlResizeOrigEndM = 0; _tlResizeStartM = 0;
+}
+
+// ============================================================
+// TIMELINE POINTER D&D — UNSCHED TASKS (機能D)
+// ============================================================
+
+function _onUnschedPointerDown(e) {
+  if (e.button !== 0 && e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+  const card   = e.currentTarget;
+  const taskId = card.dataset.id;
+  if (!taskId) return;
+
+  _tlDragStartY  = e.clientY;
+  _tlDragging    = false;
+  _tlPointerType = e.pointerType;
+
+  if (e.pointerType !== 'mouse') {
+    _tlDragTimer = setTimeout(() => { _doStartUnschedDrag(e, card, taskId); }, TL_DRAG_DELAY);
+  }
+  card.addEventListener('pointermove',   _onUnschedPointerMove,   { passive: false });
+  card.addEventListener('pointerup',     _onUnschedPointerUp);
+  card.addEventListener('pointercancel', _onUnschedPointerCancel);
+}
+
+function _doStartUnschedDrag(ev, card, taskId) {
+  if (_tlDragging || _tlDragGhost) return;
+  const d    = D();
+  const task = d.tasks.find(x => x.id === taskId);
+  if (!task) return;
+
+  _tlDragging       = true;
+  _tlDragTaskId     = taskId;
+  _tlDragGrabOffsetY = 0;
+  _tlDragOrigStartM = 0;
+  _tlDragOrigEndM   = Math.round((task.estimatedHours || 1) * 60); // durM として使用
+
+  _tlDragSource = card;
+  card.classList.add('tl-dragging-source');
+
+  _tlDragGhost = document.createElement('div');
+  _tlDragGhost.className = 'tl-drag-ghost';
+  _tlDragGhost.textContent = task.title;
+  _tlDragGhost.style.left = (ev.clientX + 8) + 'px';
+  _tlDragGhost.style.top  = (ev.clientY - 10) + 'px';
+  document.body.appendChild(_tlDragGhost);
+
+  _tlSnapIndicator = document.createElement('div');
+  _tlSnapIndicator.className = 'tl-snap-indicator';
+  const grid = document.querySelector('.timeline-grid');
+  if (grid) grid.appendChild(_tlSnapIndicator);
+
+  card.setPointerCapture(ev.pointerId);
+  document.body.classList.add('touch-dragging');
+  if (navigator.vibrate) navigator.vibrate(30);
+}
+
+function _onUnschedPointerMove(e) {
+  if (!_tlDragging) {
+    if (_tlPointerType === 'mouse') {
+      if (Math.abs(e.clientY - _tlDragStartY) > 3) {
+        _doStartUnschedDrag(e, e.currentTarget, e.currentTarget.dataset.id);
+      }
+    } else if (Math.abs(e.clientY - _tlDragStartY) > 8) {
+      clearTimeout(_tlDragTimer); _tlDragTimer = null;
+    }
+    return;
+  }
+  e.preventDefault();
+
+  if (_tlDragGhost) {
+    _tlDragGhost.style.left = (e.clientX + 8) + 'px';
+    _tlDragGhost.style.top  = (e.clientY - 10) + 'px';
+  }
+
+  if (_tlSnapIndicator) {
+    const grid = document.querySelector('.timeline-grid');
+    if (grid) {
+      const rect  = grid.getBoundingClientRect();
+      const inGrid = e.clientY >= rect.top && e.clientY <= rect.bottom;
+      _tlSnapIndicator.style.display = inGrid ? 'block' : 'none';
+      if (inGrid) {
+        const snapM = _tlYToSnapMinutes(e.clientY);
+        _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
+      }
+    }
+  }
+}
+
+function _onUnschedPointerUp(e) {
+  clearTimeout(_tlDragTimer);
+  if (!_tlDragging) { _cleanupUnschedDrag(e.currentTarget); return; }
+  _tlRecentDrag = true; setTimeout(() => { _tlRecentDrag = false; }, 400);
+
+  const grid = document.querySelector('.timeline-grid');
+  if (grid) {
+    const rect   = grid.getBoundingClientRect();
+    const inGrid = e.clientY >= rect.top && e.clientY <= rect.bottom;
+    if (inGrid) {
+      const durM         = _tlDragOrigEndM; // estimatedHours * 60
+      const newStartM    = _tlYToSnapMinutes(e.clientY);
+      const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, newStartM));
+      const clampedEnd   = clampedStart + durM;
+      const toHHMM = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      const d    = D();
+      const task = d.tasks.find(x => x.id === _tlDragTaskId);
+      if (task) {
+        task.startTime = toHHMM(clampedStart);
+        task.endTime   = toHHMM(clampedEnd);
+      }
+      _cleanupUnschedDrag(e.currentTarget);
+      if (task) commit();
+      return;
+    }
+  }
+  _cleanupUnschedDrag(e.currentTarget);
+}
+
+function _onUnschedPointerCancel(e) {
+  clearTimeout(_tlDragTimer);
+  _cleanupUnschedDrag(e.currentTarget);
+}
+
+function _cleanupUnschedDrag(card) {
+  if (_tlDragGhost)     { _tlDragGhost.remove();     _tlDragGhost     = null; }
+  if (_tlSnapIndicator) { _tlSnapIndicator.remove();  _tlSnapIndicator = null; }
+  if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
+  document.body.classList.remove('touch-dragging');
+  if (card) {
+    card.removeEventListener('pointerdown',   _onUnschedPointerDown);
+    card.removeEventListener('pointermove',   _onUnschedPointerMove);
+    card.removeEventListener('pointerup',     _onUnschedPointerUp);
+    card.removeEventListener('pointercancel', _onUnschedPointerCancel);
+  }
+  _tlDragTaskId = null; _tlDragging = false; _tlDragTimer = null;
+  _tlDragOrigStartM = 0; _tlDragOrigEndM = 0; _tlPointerType = ''; _tlDragGrabOffsetY = 0;
 }
 
 // ============================================================
