@@ -2164,26 +2164,33 @@ function renderTimeline(d) {
 
   const hours = Array.from({ length: TL_END - TL_START }, (_, i) => i + TL_START);
 
-  function tlCard(task, style) {
+  function tlCard(task, style, h) {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
     const timeLabel = task.startTime
       ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${task.estimatedHours}h`
       : `${task.estimatedHours}h`;
+    const pad    = h < 40 ? '2px 6px' : '5px 8px';
+    const showSub = h >= 44;  // プロジェクト名 or 時刻ラベルを表示するか
+    const showAll = h >= 58;  // 両方表示するか
+    const subLine = proj
+      ? `<div style="font-size:10px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(proj.name)}</div>`
+      : '';
+    const timeLine = `<div style="font-size:10px;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${timeLabel}</div>`;
     return `<div class="timeline-task${done ? ' done' : ''}" data-id="${task.id}"
-      style="${style}"
+      style="${style};padding:${pad}"
       draggable="true"
       ondragstart="handleDragStart(event,'${task.id}')"
       ondragend="handleDragEnd(event)"
       onclick="openEditModal('${task.id}')">
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(task.title)}</div>
-      ${proj ? `<div style="font-size:10px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(proj.name)}</div>` : ''}
-      <div style="font-size:10px;opacity:.55">${timeLabel}</div>
+      ${showSub ? subLine : ''}
+      ${showAll ? timeLine : (!showSub ? '' : (proj ? '' : timeLine))}
     </div>`;
   }
 
   const gridCards = layouts.map(({ task, top, height, wPct, lPct }) =>
-    tlCard(task, `top:${top}px;height:${height}px;left:calc(${lPct}% + 2px);width:calc(${wPct}% - 4px)`)
+    tlCard(task, `top:${top}px;height:${height}px;left:calc(${lPct}% + 2px);width:calc(${wPct}% - 4px)`, height)
   ).join('');
 
   const unschedCards = noTime.map(task => {
