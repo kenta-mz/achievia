@@ -5260,6 +5260,7 @@ function _onTlPointerDown(e) {
 }
 
 function _doStartTlDrag(ev, card, taskId) {
+  if (_tlDragging || _tlDragGhost) return; // guard: prevent double ghost
   const d    = D();
   const task = d.tasks.find(x => x.id === taskId);
   if (!task || !task.startTime) return;
@@ -5362,6 +5363,7 @@ function _cleanupTlDrag(card) {
   if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
   document.body.classList.remove('touch-dragging');
   if (card) {
+    card.removeEventListener('pointerdown',   _onTlPointerDown);
     card.removeEventListener('pointermove',   _onTlPointerMove);
     card.removeEventListener('pointerup',     _onTlPointerUp);
     card.removeEventListener('pointercancel', _onTlPointerCancel);
