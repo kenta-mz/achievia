@@ -5551,15 +5551,11 @@ function _onUnschedPointerMove(e) {
   }
 
   if (_tlSnapIndicator) {
-    const grid = document.querySelector('.timeline-grid');
-    if (grid) {
-      const rect  = grid.getBoundingClientRect();
-      const inGrid = e.clientY >= rect.top && e.clientY <= rect.bottom;
-      _tlSnapIndicator.style.display = inGrid ? 'block' : 'none';
-      if (inGrid) {
-        const snapM = _tlYToSnapMinutes(e.clientY);
-        _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
-      }
+    const snapM  = _tlYToSnapMinutes(e.clientY);
+    const inGrid = snapM >= TL_START_M && snapM < TL_END_M;
+    _tlSnapIndicator.style.display = inGrid ? 'block' : 'none';
+    if (inGrid) {
+      _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
     }
   }
 }
@@ -5569,26 +5565,22 @@ function _onUnschedPointerUp(e) {
   if (!_tlDragging) { _cleanupUnschedDrag(e.currentTarget); return; }
   _tlRecentDrag = true; setTimeout(() => { _tlRecentDrag = false; }, 400);
 
-  const grid = document.querySelector('.timeline-grid');
-  if (grid) {
-    const rect   = grid.getBoundingClientRect();
-    const inGrid = e.clientY >= rect.top && e.clientY <= rect.bottom;
-    if (inGrid) {
-      const durM         = _tlDragOrigEndM; // estimatedHours * 60
-      const newStartM    = _tlYToSnapMinutes(e.clientY);
-      const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, newStartM));
-      const clampedEnd   = clampedStart + durM;
-      const toHHMM = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-      const d    = D();
-      const task = d.tasks.find(x => x.id === _tlDragTaskId);
-      if (task) {
-        task.startTime = toHHMM(clampedStart);
-        task.endTime   = toHHMM(clampedEnd);
-      }
-      _cleanupUnschedDrag(e.currentTarget);
-      if (task) commit();
-      return;
+  const durM      = _tlDragOrigEndM; // estimatedHours * 60
+  const rawStartM = _tlYToSnapMinutes(e.clientY);
+  // グリッド内（7:00〜23:00）にドロップした場合のみ startTime を設定
+  if (rawStartM >= TL_START_M && rawStartM < TL_END_M) {
+    const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, rawStartM));
+    const clampedEnd   = clampedStart + durM;
+    const toHHMM = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const d    = D();
+    const task = d.tasks.find(x => x.id === _tlDragTaskId);
+    if (task) {
+      task.startTime = toHHMM(clampedStart);
+      task.endTime   = toHHMM(clampedEnd);
     }
+    _cleanupUnschedDrag(e.currentTarget);
+    if (task) commit();
+    return;
   }
   _cleanupUnschedDrag(e.currentTarget);
 }
