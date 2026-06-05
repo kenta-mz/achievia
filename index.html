@@ -5424,7 +5424,7 @@ function _onTlResizePointerMove(e) {
   const snappedDeltaM = Math.round((dy / TL_PX * 60) / 15) * 15;
   let newEndM = Math.max(_tlResizeStartM + 15, Math.min(TL_END_M, _tlResizeOrigEndM + snappedDeltaM));
   if (_tlResizeCard) {
-    _tlResizeCard.style.height = Math.max((newEndM - _tlResizeStartM) / 60 * TL_PX - 4, 28) + 'px';
+    _tlResizeCard.style.height = Math.max((newEndM - _tlResizeStartM) / 60 * TL_PX, 28) + 'px';
   }
 }
 
@@ -5451,7 +5451,7 @@ function _onTlResizePointerUp(e) {
 
 function _onTlResizePointerCancel(e) {
   if (_tlResizeCard) {
-    const origHeight = Math.max((_tlResizeOrigEndM - _tlResizeStartM) / 60 * TL_PX - 4, 28);
+    const origHeight = Math.max((_tlResizeOrigEndM - _tlResizeStartM) / 60 * TL_PX, 28);
     _tlResizeCard.style.height = origHeight + 'px';
   }
   _cleanupTlResize(e.currentTarget);
