@@ -5248,52 +5248,61 @@ function _onTlPointerDown(e) {
   _tlDragging    = false;
   _tlPointerType = e.pointerType;
 
-  const _tlDelay = e.pointerType === 'mouse' ? 0 : TL_DRAG_DELAY;
-  _tlDragTimer = setTimeout(() => {
-    const d    = D();
-    const task = d.tasks.find(x => x.id === taskId);
-    if (!task || !task.startTime) return;
-
-    _tlDragging   = true;
-    _tlDragTaskId = taskId;
-
-    const toM = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
-    _tlDragOrigStartM = toM(task.startTime);
-    _tlDragOrigEndM   = task.endTime
-      ? toM(task.endTime)
-      : _tlDragOrigStartM + Math.round((task.estimatedHours || 1) * 60);
-
-    // grab offset: pointer position relative to card top
-    _tlDragGrabOffsetY = e.clientY - card.getBoundingClientRect().top;
-
-    _tlDragSource = card;
-    card.classList.add('tl-dragging-source');
-
-    _tlDragGhost = document.createElement('div');
-    _tlDragGhost.className = 'tl-drag-ghost';
-    _tlDragGhost.textContent = task.title;
-    _tlDragGhost.style.left = (e.clientX + 8) + 'px';
-    _tlDragGhost.style.top  = (e.clientY - 10) + 'px';
-    document.body.appendChild(_tlDragGhost);
-
-    _tlSnapIndicator = document.createElement('div');
-    _tlSnapIndicator.className = 'tl-snap-indicator';
-    const grid = document.querySelector('.timeline-grid');
-    if (grid) grid.appendChild(_tlSnapIndicator);
-
-    card.setPointerCapture(e.pointerId);
-    document.body.classList.add('touch-dragging');
-    if (navigator.vibrate) navigator.vibrate(30);
-  }, _tlDelay);
+  if (e.pointerType !== 'mouse') {
+    // Touch/pen: 300ms long-press timer
+    _tlDragTimer = setTimeout(() => { _doStartTlDrag(e, card, taskId); }, TL_DRAG_DELAY);
+  }
+  // Mouse: drag starts on first significant movement in _onTlPointerMove
 
   card.addEventListener('pointermove',   _onTlPointerMove,   { passive: false });
   card.addEventListener('pointerup',     _onTlPointerUp);
   card.addEventListener('pointercancel', _onTlPointerCancel);
 }
 
+function _doStartTlDrag(ev, card, taskId) {
+  const d    = D();
+  const task = d.tasks.find(x => x.id === taskId);
+  if (!task || !task.startTime) return;
+
+  _tlDragging   = true;
+  _tlDragTaskId = taskId;
+
+  const toM = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+  _tlDragOrigStartM = toM(task.startTime);
+  _tlDragOrigEndM   = task.endTime
+    ? toM(task.endTime)
+    : _tlDragOrigStartM + Math.round((task.estimatedHours || 1) * 60);
+
+  _tlDragGrabOffsetY = _tlDragStartY - card.getBoundingClientRect().top;
+
+  _tlDragSource = card;
+  card.classList.add('tl-dragging-source');
+
+  _tlDragGhost = document.createElement('div');
+  _tlDragGhost.className = 'tl-drag-ghost';
+  _tlDragGhost.textContent = task.title;
+  _tlDragGhost.style.left = (ev.clientX + 8) + 'px';
+  _tlDragGhost.style.top  = (ev.clientY - 10) + 'px';
+  document.body.appendChild(_tlDragGhost);
+
+  _tlSnapIndicator = document.createElement('div');
+  _tlSnapIndicator.className = 'tl-snap-indicator';
+  const grid = document.querySelector('.timeline-grid');
+  if (grid) grid.appendChild(_tlSnapIndicator);
+
+  card.setPointerCapture(ev.pointerId);
+  document.body.classList.add('touch-dragging');
+  if (navigator.vibrate) navigator.vibrate(30);
+}
+
 function _onTlPointerMove(e) {
   if (!_tlDragging) {
-    if (_tlPointerType !== 'mouse' && Math.abs(e.clientY - _tlDragStartY) > 8) {
+    if (_tlPointerType === 'mouse') {
+      // Mouse: start drag once moved > 3px (no timer needed)
+      if (Math.abs(e.clientY - _tlDragStartY) > 3) {
+        _doStartTlDrag(e, e.currentTarget, e.currentTarget.dataset.id);
+      }
+    } else if (Math.abs(e.clientY - _tlDragStartY) > 8) {
       clearTimeout(_tlDragTimer); _tlDragTimer = null;
     }
     return;
