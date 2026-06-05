@@ -652,6 +652,62 @@ input[type="number"].no-spin::-webkit-outer-spin-button { -webkit-appearance: no
 /* ── Task List Card ── */
 #task-list-card { padding: 0; overflow: visible; background: transparent; border: none; box-shadow: none; }
 
+/* ── Touch D&D Ghost ── */
+.touch-drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.75;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  background: #fff;
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: scale(1.04);
+}
+body.touch-dragging {
+  overflow: hidden;
+  touch-action: none;
+}
+body.touch-dragging .tasks-left {
+  overflow-y: hidden;
+  touch-action: none;
+}
+
+/* ── Timeline Pointer D&D ── */
+.timeline-task.tl-dragging-source { opacity: 0.3; pointer-events: none; }
+.tl-drag-ghost {
+  position: fixed; z-index: 9999; pointer-events: none;
+  opacity: 0.85; border-radius: 6px; background: var(--ink); color: #fff;
+  font-size: 12px; padding: 5px 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transform: scale(1.03); transition: none;
+}
+.tl-snap-indicator {
+  position: absolute; left: 0; right: 0; height: 2px;
+  background: rgba(99,102,241,0.6); pointer-events: none; z-index: 10;
+}
+
+/* ── Timeline Resize Handle ── */
+.tl-resize-handle {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 12px;
+  cursor: ns-resize;
+  display: flex; align-items: center; justify-content: center;
+  touch-action: none;
+}
+.tl-resize-handle::after {
+  content: ''; width: 24px; height: 3px;
+  background: rgba(255,255,255,0.5); border-radius: 2px;
+}
+.timeline-task:hover .tl-resize-handle::after { background: rgba(255,255,255,0.8); }
+.timeline-task.tl-resizing { transition: none; opacity: 0.85; }
+
 /* ── Note Icon Buttons ── */
 .note-icon-btn {
   width: 22px; height: 22px; border: none; background: transparent; color: var(--gray-400);
@@ -1823,7 +1879,7 @@ function _renderDateSection(date, tasks, d, isPast) {
   const hdrStyle = 'date-section-header';
   const textStyle = isToday ? 'font-size:13px' : '';
   return `
-    <div class="date-section">
+    <div class="date-section" data-section-date="${date}">
       <div class="${hdrStyle}" onclick="toggleSec('${date}')"
         ondragover="handleDragOver(event)" ondrop="handleDropOnSection(event,'${date}')">
         <span class="section-toggle ${col?'closed':''}">▼</span>
@@ -1863,7 +1919,7 @@ function resetTaskWindows() { _futureWindow = 3; _futureShown = true; _pastShown
 function renderTaskList() {
   const el = document.getElementById('task-list'); if (!el) return;
   const d = D();
-  if (viewMode === 'timeline') { el.innerHTML = renderTimeline(d); return; }
+  if (viewMode === 'timeline') { el.innerHTML = renderTimeline(d); attachTimelineDragListeners(); return; }
 
   const t = todayStr();
   const byDate = {};
@@ -1963,6 +2019,7 @@ function renderTaskList() {
       inp.focus(); inp.select();
     }
   }
+  attachTouchDragListeners();
 }
 
 function taskRow(task, d) {
@@ -2180,13 +2237,11 @@ function renderTimeline(d) {
     const timeLine = `<div style="font-size:10px;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${timeLabel}</div>`;
     return `<div class="timeline-task${done ? ' done' : ''}" data-id="${task.id}"
       style="${style};padding:${pad}"
-      draggable="true"
-      ondragstart="handleDragStart(event,'${task.id}')"
-      ondragend="handleDragEnd(event)"
       onclick="openEditModal('${task.id}')">
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
       ${showAll ? timeLine : (!showSub ? '' : (proj ? '' : timeLine))}
+      ${h >= 40 ? `<div class="tl-resize-handle" data-resize-id="${task.id}"></div>` : ''}
     </div>`;
   }
 
@@ -4979,6 +5034,407 @@ function _initEmHoursDailyRows(task) {
   const dates = task?.estimatedHoursByDate || [];
   if (dates.length === 0) { _addEmHoursDateRow(todayStr(), 1); return; }
   dates.forEach(p => _addEmHoursDateRow(p.date, p.hours));
+}
+
+// ============================================================
+// TOUCH D&D — TASK LIST (機能A)
+// ============================================================
+
+// ── Touch D&D state ──────────────────────────────────────────
+let _touchDragTaskId   = null;
+let _touchDragSlotDate = null;
+let _touchDragSlotIdx  = -1;
+let _touchDragGhost    = null;
+let _touchDragTimer    = null;
+let _touchDragStartX   = 0;
+let _touchDragStartY   = 0;
+let _touchDragging     = false;
+const TOUCH_DRAG_DELAY = 300;
+const TOUCH_MOVE_THRESHOLD = 8;
+
+function attachTouchDragListeners() {
+  document.querySelectorAll('.task-row[draggable="true"]').forEach(row => {
+    if (row._touchDragBound) return;
+    row._touchDragBound = true;
+    row.addEventListener('touchstart',  _onTaskTouchStart,  { passive: false });
+    row.addEventListener('touchmove',   _onTaskTouchMove,   { passive: false });
+    row.addEventListener('touchend',    _onTaskTouchEnd,    { passive: false });
+    row.addEventListener('touchcancel', _onTaskTouchCancel, { passive: false });
+  });
+}
+
+function _onTaskTouchStart(e) {
+  if (e.touches.length !== 1) return;
+  const row   = e.currentTarget;
+  const touch = e.touches[0];
+  _touchDragStartX = touch.clientX;
+  _touchDragStartY = touch.clientY;
+  _touchDragging   = false;
+
+  const taskId   = row.dataset.taskId   || null;
+  const taskDate = row.dataset.taskDate || '';
+  const slotIdx  = parseInt(row.dataset.slotIdx ?? '-1');
+
+  _touchDragTimer = setTimeout(() => {
+    _touchDragging     = true;
+    _touchDragTaskId   = taskId;
+    _touchDragSlotDate = taskDate || null;
+    _touchDragSlotIdx  = slotIdx;
+
+    dragTaskId   = taskId;
+    dragSlotDate = taskDate || null;
+    dragSlotIdx  = slotIdx;
+
+    row.style.opacity = '0.4';
+    _touchDragGhost = _createTouchGhost(row, touch.clientX, touch.clientY);
+    document.body.appendChild(_touchDragGhost);
+    document.body.classList.add('touch-dragging', 'drag-active');
+    if (navigator.vibrate) navigator.vibrate(30);
+  }, TOUCH_DRAG_DELAY);
+}
+
+function _onTaskTouchMove(e) {
+  const touch = e.touches[0];
+  if (!_touchDragging) {
+    const dx = Math.abs(touch.clientX - _touchDragStartX);
+    const dy = Math.abs(touch.clientY - _touchDragStartY);
+    if (dx > TOUCH_MOVE_THRESHOLD || dy > TOUCH_MOVE_THRESHOLD) _cancelTouchDrag();
+    return;
+  }
+  e.preventDefault();
+  if (_touchDragGhost) {
+    _touchDragGhost.style.left = (touch.clientX + 16) + 'px';
+    _touchDragGhost.style.top  = (touch.clientY - 20) + 'px';
+  }
+  _touchUpdateDropTarget(touch.clientX, touch.clientY);
+}
+
+function _onTaskTouchEnd(e) {
+  clearTimeout(_touchDragTimer);
+  if (!_touchDragging) return;
+  e.preventDefault();
+  const touch = e.changedTouches[0];
+  _touchExecuteDrop(touch.clientX, touch.clientY);
+  _cleanupTouchDrag();
+}
+
+function _onTaskTouchCancel() { _cancelTouchDrag(); }
+
+function _createTouchGhost(row, clientX, clientY) {
+  const ghost = document.createElement('div');
+  ghost.className = 'touch-drag-ghost';
+  const titleEl = row.querySelector('.task-title');
+  ghost.textContent = titleEl ? titleEl.textContent : '—';
+  ghost.style.left = (clientX + 16) + 'px';
+  ghost.style.top  = (clientY - 20) + 'px';
+  return ghost;
+}
+
+function _touchUpdateDropTarget(clientX, clientY) {
+  if (_touchDragGhost) _touchDragGhost.style.display = 'none';
+  const el = document.elementFromPoint(clientX, clientY);
+  if (_touchDragGhost) _touchDragGhost.style.display = '';
+  clearDragIndicators();
+  if (!el) return;
+
+  const targetRow = el.closest('.task-row, .divider-row');
+  if (targetRow) {
+    const rect = targetRow.getBoundingClientRect();
+    dragInsertAfter = clientY > rect.top + rect.height / 2;
+    targetRow.classList.add(dragInsertAfter ? 'drag-insert-after' : 'drag-insert-before');
+    _lastDragTaskId   = targetRow.dataset.taskId   || null;
+    _lastDragTaskDate = targetRow.dataset.taskDate  ?? null;
+    _lastDragSlotIdx  = parseInt(targetRow.dataset.slotIdx ?? '-1');
+    return;
+  }
+
+  const sectionEl = el.closest('[data-section-date]');
+  if (sectionEl) sectionEl.classList.add('drag-over-zone');
+}
+
+function _touchExecuteDrop(clientX, clientY) {
+  if (_touchDragGhost) _touchDragGhost.style.display = 'none';
+  const el = document.elementFromPoint(clientX, clientY);
+  if (_touchDragGhost) _touchDragGhost.style.display = '';
+  if (!el) { clearDragIndicators(); return; }
+
+  const syntheticEvent = { preventDefault: () => {}, stopPropagation: () => {}, clientY };
+
+  const targetRow = el.closest('.task-row, .divider-row');
+  if (targetRow) {
+    handleDropOnTask(syntheticEvent, targetRow.dataset.taskId, targetRow.dataset.taskDate || '', parseInt(targetRow.dataset.slotIdx ?? '-1'));
+    return;
+  }
+
+  const sectionEl = el.closest('[data-section-date]');
+  if (sectionEl) { handleDropOnSection(syntheticEvent, sectionEl.dataset.sectionDate); return; }
+
+  const rightPanel = el.closest('.notes-panel');
+  if (rightPanel) { handleDropOnSection(syntheticEvent, ''); return; }
+
+  clearDragIndicators();
+}
+
+function _cancelTouchDrag() {
+  clearTimeout(_touchDragTimer);
+  _touchDragTimer = null;
+  _touchDragging  = false;
+}
+
+function _cleanupTouchDrag() {
+  clearTimeout(_touchDragTimer);
+  if (_touchDragGhost) { _touchDragGhost.remove(); _touchDragGhost = null; }
+  document.querySelectorAll('.task-row[style*="opacity"]').forEach(r => { r.style.opacity = ''; });
+  document.body.classList.remove('touch-dragging', 'drag-active');
+  clearDragIndicators();
+  _touchDragTaskId = null; _touchDragSlotDate = null; _touchDragSlotIdx = -1;
+  _touchDragging = false; _touchDragTimer = null;
+  dragTaskId = null; dragSlotDate = null; dragSlotIdx = -1;
+  _lastDragTaskId = null; _lastDragTaskDate = null; _lastDragSlotIdx = -1;
+}
+
+// ============================================================
+// TIMELINE POINTER D&D — MOVE (機能B)
+// ============================================================
+
+// ── Timeline Pointer D&D state ────────────────────────────────
+let _tlDragTaskId     = null;
+let _tlDragGhost      = null;
+let _tlDragSource     = null;
+let _tlSnapIndicator  = null;
+let _tlDragStartY     = 0;
+let _tlDragOrigStartM = 0;
+let _tlDragOrigEndM   = 0;
+let _tlDragTimer      = null;
+let _tlDragging       = false;
+const TL_DRAG_DELAY   = 300;
+const TL_START_M      = 7 * 60;
+const TL_END_M        = 23 * 60;
+const TL_PX           = 50;
+
+function attachTimelineDragListeners() {
+  document.querySelectorAll('.timeline-task').forEach(card => {
+    if (card._tlBound) return;
+    card._tlBound = true;
+    card.addEventListener('pointerdown', _onTlPointerDown, { passive: false });
+  });
+  document.querySelectorAll('.tl-resize-handle').forEach(handle => {
+    if (handle._tlResizeBound) return;
+    handle._tlResizeBound = true;
+    handle.addEventListener('pointerdown', _onTlResizePointerDown, { passive: false });
+  });
+}
+
+function _onTlPointerDown(e) {
+  if (e.target.classList.contains('tl-resize-handle')) return;
+  if (e.button !== 0 && e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+
+  const card   = e.currentTarget;
+  const taskId = card.dataset.id;
+  if (!taskId) return;
+
+  _tlDragStartY = e.clientY;
+  _tlDragging   = false;
+
+  _tlDragTimer = setTimeout(() => {
+    const d    = D();
+    const task = d.tasks.find(x => x.id === taskId);
+    if (!task || !task.startTime) return;
+
+    _tlDragging   = true;
+    _tlDragTaskId = taskId;
+
+    const toM = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+    _tlDragOrigStartM = toM(task.startTime);
+    _tlDragOrigEndM   = task.endTime
+      ? toM(task.endTime)
+      : _tlDragOrigStartM + Math.round((task.estimatedHours || 1) * 60);
+
+    _tlDragSource = card;
+    card.classList.add('tl-dragging-source');
+
+    _tlDragGhost = document.createElement('div');
+    _tlDragGhost.className = 'tl-drag-ghost';
+    _tlDragGhost.textContent = task.title;
+    _tlDragGhost.style.left = (e.clientX + 8) + 'px';
+    _tlDragGhost.style.top  = (e.clientY - 10) + 'px';
+    document.body.appendChild(_tlDragGhost);
+
+    _tlSnapIndicator = document.createElement('div');
+    _tlSnapIndicator.className = 'tl-snap-indicator';
+    const grid = document.querySelector('.timeline-grid');
+    if (grid) grid.appendChild(_tlSnapIndicator);
+
+    card.setPointerCapture(e.pointerId);
+    document.body.classList.add('touch-dragging');
+    if (navigator.vibrate) navigator.vibrate(30);
+  }, TL_DRAG_DELAY);
+
+  card.addEventListener('pointermove',   _onTlPointerMove,   { passive: false });
+  card.addEventListener('pointerup',     _onTlPointerUp);
+  card.addEventListener('pointercancel', _onTlPointerCancel);
+}
+
+function _onTlPointerMove(e) {
+  if (!_tlDragging) {
+    if (Math.abs(e.clientY - _tlDragStartY) > 8) { clearTimeout(_tlDragTimer); _tlDragTimer = null; }
+    return;
+  }
+  e.preventDefault();
+  if (_tlDragGhost) {
+    _tlDragGhost.style.left = (e.clientX + 8) + 'px';
+    _tlDragGhost.style.top  = (e.clientY - 10) + 'px';
+  }
+  const snapM = _tlYToSnapMinutes(e.clientY);
+  if (_tlSnapIndicator) {
+    _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
+  }
+}
+
+function _onTlPointerUp(e) {
+  clearTimeout(_tlDragTimer);
+  if (!_tlDragging) { _cleanupTlDrag(e.currentTarget); return; }
+
+  const newStartM = _tlYToSnapMinutes(e.clientY);
+  const durM      = _tlDragOrigEndM - _tlDragOrigStartM;
+  // clampedEnd 修正：durM を考慮して start をクリップ
+  const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, newStartM));
+  const clampedEnd   = clampedStart + durM;
+
+  const toHHMM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+
+  const d    = D();
+  const task = d.tasks.find(x => x.id === _tlDragTaskId);
+  if (task) {
+    task.startTime = toHHMM(clampedStart);
+    task.endTime   = toHHMM(clampedEnd);
+  }
+
+  // cleanup → commit の順序
+  _cleanupTlDrag(e.currentTarget);
+  if (task) commit();
+}
+
+function _onTlPointerCancel(e) {
+  clearTimeout(_tlDragTimer);
+  _cleanupTlDrag(e.currentTarget);
+}
+
+function _tlYToSnapMinutes(clientY) {
+  const grid = document.querySelector('.timeline-grid');
+  if (!grid) return TL_START_M;
+  const rect = grid.getBoundingClientRect();
+  const rawM = TL_START_M + (clientY - rect.top) / TL_PX * 60;
+  return Math.round(rawM / 30) * 30;
+}
+
+function _cleanupTlDrag(card) {
+  if (_tlDragGhost)     { _tlDragGhost.remove();     _tlDragGhost     = null; }
+  if (_tlSnapIndicator) { _tlSnapIndicator.remove();  _tlSnapIndicator = null; }
+  if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
+  document.body.classList.remove('touch-dragging');
+  if (card) {
+    card.removeEventListener('pointermove',   _onTlPointerMove);
+    card.removeEventListener('pointerup',     _onTlPointerUp);
+    card.removeEventListener('pointercancel', _onTlPointerCancel);
+  }
+  _tlDragTaskId = null; _tlDragging = false; _tlDragTimer = null;
+  _tlDragOrigStartM = 0; _tlDragOrigEndM = 0;
+}
+
+// ============================================================
+// TIMELINE POINTER D&D — RESIZE (機能C)
+// ============================================================
+
+// ── Timeline Resize state ─────────────────────────────────────
+let _tlResizeTaskId   = null;
+let _tlResizeCard     = null;
+let _tlResizeStartY   = 0;
+let _tlResizeOrigEndM = 0;
+let _tlResizeStartM   = 0;
+let _tlResizing       = false;
+
+function _onTlResizePointerDown(e) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const handle = e.currentTarget;
+  const card   = handle.closest('.timeline-task');
+  if (!card) return;
+  const taskId = card.dataset.id;
+  if (!taskId) return;
+
+  const d    = D();
+  const task = d.tasks.find(x => x.id === taskId);
+  if (!task || !task.startTime) return;
+
+  const toM = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+
+  _tlResizing       = true;
+  _tlResizeTaskId   = taskId;
+  _tlResizeCard     = card;
+  _tlResizeStartY   = e.clientY;
+  _tlResizeStartM   = toM(task.startTime);
+  _tlResizeOrigEndM = task.endTime
+    ? toM(task.endTime)
+    : _tlResizeStartM + Math.round((task.estimatedHours || 1) * 60);
+
+  card.classList.add('tl-resizing');
+  handle.setPointerCapture(e.pointerId);
+
+  handle.addEventListener('pointermove',   _onTlResizePointerMove,   { passive: false });
+  handle.addEventListener('pointerup',     _onTlResizePointerUp);
+  handle.addEventListener('pointercancel', _onTlResizePointerCancel);
+}
+
+function _onTlResizePointerMove(e) {
+  if (!_tlResizing) return;
+  e.preventDefault();
+  const dy            = e.clientY - _tlResizeStartY;
+  const snappedDeltaM = Math.round((dy / TL_PX * 60) / 30) * 30;
+  let newEndM = Math.max(_tlResizeStartM + 30, Math.min(TL_END_M, _tlResizeOrigEndM + snappedDeltaM));
+  if (_tlResizeCard) {
+    _tlResizeCard.style.height = Math.max((newEndM - _tlResizeStartM) / 60 * TL_PX - 4, 28) + 'px';
+  }
+}
+
+function _onTlResizePointerUp(e) {
+  if (!_tlResizing) return;
+  const dy            = e.clientY - _tlResizeStartY;
+  const snappedDeltaM = Math.round((dy / TL_PX * 60) / 30) * 30;
+  const newEndM       = Math.max(_tlResizeStartM + 30, Math.min(TL_END_M, _tlResizeOrigEndM + snappedDeltaM));
+  const newEstHours   = (newEndM - _tlResizeStartM) / 60;
+  const toHHMM        = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+
+  const d    = D();
+  const task = d.tasks.find(x => x.id === _tlResizeTaskId);
+  if (task) {
+    task.endTime        = toHHMM(newEndM);
+    task.estimatedHours = newEstHours;
+  }
+
+  // cleanup → commit の順序
+  _cleanupTlResize(e.currentTarget);
+  if (task) commit();
+}
+
+function _onTlResizePointerCancel(e) {
+  if (_tlResizeCard) {
+    const origHeight = Math.max((_tlResizeOrigEndM - _tlResizeStartM) / 60 * TL_PX - 4, 28);
+    _tlResizeCard.style.height = origHeight + 'px';
+  }
+  _cleanupTlResize(e.currentTarget);
+}
+
+function _cleanupTlResize(handle) {
+  if (_tlResizeCard) _tlResizeCard.classList.remove('tl-resizing');
+  if (handle) {
+    handle.removeEventListener('pointermove',   _onTlResizePointerMove);
+    handle.removeEventListener('pointerup',     _onTlResizePointerUp);
+    handle.removeEventListener('pointercancel', _onTlResizePointerCancel);
+  }
+  _tlResizing = false; _tlResizeTaskId = null; _tlResizeCard = null;
+  _tlResizeOrigEndM = 0; _tlResizeStartM = 0;
 }
 
 // ============================================================
