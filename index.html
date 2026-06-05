@@ -753,7 +753,7 @@ input[type="number"].no-spin::-webkit-outer-spin-button { -webkit-appearance: no
           <div class="card" style="padding:0;overflow:hidden">
             <div class="quick-add">
               <div class="quick-add-icon" onclick="openNewTaskModal()" style="cursor:pointer" title="タスクを追加">+</div>
-              <input type="text" id="quick-add-input" placeholder="タスクを追加… (: プロジェクト  # 作業種類  ! 日付  ^ 優先度)" autocomplete="off" oninput="handleQaInput(event)">
+              <input type="text" id="quick-add-input" placeholder="タスクを追加… (: プロジェクト  # 作業種類  ! 日付)" autocomplete="off" oninput="handleQaInput(event)">
               <button class="btn btn-primary btn-sm" onclick="handleQuickAdd()">追加</button>
             </div>
             <div id="qa-chips"></div>
@@ -3771,7 +3771,7 @@ function handleQaInput(e) {
   for (let i = cursor - 1; i >= 0; i--) {
     const ch = val[i];
     if (ch === ' ') break;
-    if ([':','#','!','^'].includes(ch)) {
+    if ([':','#','!'].includes(ch)) { // '^' (優先度) は無効化中
       // Valid only if at start of string or preceded by a space
       if (i === 0 || val[i - 1] === ' ') found = { char: ch, pos: i };
       break;
