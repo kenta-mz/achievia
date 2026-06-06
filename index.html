@@ -2291,7 +2291,7 @@ function renderTimeline(d) {
       onclick="_onTlTaskClick(event,'${task.id}')">
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
-      ${showAll ? timeLine : (!showSub ? '' : (proj ? '' : timeLine))}
+      ${showAll ? timeLine : (!showSub ? timeLine : (proj ? '' : timeLine))}
       ${h >= 28 ? `<div class="tl-resize-top-handle" data-top-resize-id="${task.id}"></div>` : ''}
       <div class="tl-resize-handle" data-resize-id="${task.id}"></div>
     </div>`;
