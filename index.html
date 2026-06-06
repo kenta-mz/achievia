@@ -296,6 +296,12 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px 24px 24px; }
 .timeline-wrap { position: relative; padding-left: 52px; }
 .timeline-grid { position: relative; height: 1200px; }
 .timeline-grid-line { position: relative; height: 75px; border-top: 1px solid var(--gray-200); }
+.timeline-grid-line::after {
+  content: ''; position: absolute;
+  left: 0; right: 0; top: 37.5px;
+  border-top: 1px solid var(--gray-200);
+  opacity: 0.45; pointer-events: none;
+}
 .tl-end-line { position: relative; height: 0; border-top: 1px solid var(--gray-200); }
 .tl-hour-label {
   position: absolute; left: -52px; width: 44px; top: -7px;
@@ -2266,7 +2272,7 @@ function renderTimeline(d) {
       const maxCol   = overlap.length ? Math.max(item.col, ...overlap.map(o => o.col)) : item.col;
       const totalCols = maxCol + 1;
       const top      = (item.startM - TL_START * 60) / 60 * PX;
-      const height   = Math.max((item.endM - item.startM) / 60 * PX, 28);
+      const height   = Math.max((item.endM - item.startM) / 60 * PX - 2, 28);
       const wPct     = totalCols > 1 ? 100 / totalCols : 100;
       const lPct     = totalCols > 1 ? item.col / totalCols * 100 : 0;
       return { task: item.task, top, height, wPct, lPct };
@@ -5562,7 +5568,7 @@ function _onTlResizePointerMove(e) {
   const snappedDeltaM = Math.round((dy / TL_PX * 60) / 15) * 15;
   let newEndM = Math.max(_tlResizeStartM + 15, Math.min(TL_END_M, _tlResizeOrigEndM + snappedDeltaM));
   if (_tlResizeCard) {
-    _tlResizeCard.style.height = Math.max((newEndM - _tlResizeStartM) / 60 * TL_PX, 28) + 'px';
+    _tlResizeCard.style.height = Math.max((newEndM - _tlResizeStartM) / 60 * TL_PX - 2, 28) + 'px';
   }
 }
 
@@ -5589,7 +5595,7 @@ function _onTlResizePointerUp(e) {
 
 function _onTlResizePointerCancel(e) {
   if (_tlResizeCard) {
-    const origHeight = Math.max((_tlResizeOrigEndM - _tlResizeStartM) / 60 * TL_PX, 28);
+    const origHeight = Math.max((_tlResizeOrigEndM - _tlResizeStartM) / 60 * TL_PX - 2, 28);
     _tlResizeCard.style.height = origHeight + 'px';
   }
   _cleanupTlResize(e.currentTarget);
@@ -5659,7 +5665,7 @@ function _onTlTopResizePointerMove(e) {
   const clampedStartM = Math.max(TL_START_M, Math.min(_tlTopResizeOrigEndM - 15, rawNewStartM));
 
   const newTop    = (clampedStartM - TL_START_M) / 60 * TL_PX;
-  const newHeight = Math.max((_tlTopResizeOrigEndM - clampedStartM) / 60 * TL_PX, 28);
+  const newHeight = Math.max((_tlTopResizeOrigEndM - clampedStartM) / 60 * TL_PX - 2, 28);
 
   if (_tlTopResizeCard) {
     _tlTopResizeCard.style.top    = newTop    + 'px';
@@ -5702,7 +5708,7 @@ function _onTlTopResizePointerUp(e) {
 function _onTlTopResizePointerCancel(e) {
   if (_tlTopResizeCard) {
     const origTop    = (_tlTopResizeOrigStartM - TL_START_M) / 60 * TL_PX;
-    const origHeight = Math.max((_tlTopResizeOrigEndM - _tlTopResizeOrigStartM) / 60 * TL_PX, 28);
+    const origHeight = Math.max((_tlTopResizeOrigEndM - _tlTopResizeOrigStartM) / 60 * TL_PX - 2, 28);
     _tlTopResizeCard.style.top    = origTop    + 'px';
     _tlTopResizeCard.style.height = origHeight + 'px';
   }
