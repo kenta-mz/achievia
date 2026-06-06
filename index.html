@@ -296,6 +296,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px 24px 24px; }
 .timeline-wrap { position: relative; padding-left: 52px; }
 .timeline-grid { position: relative; height: 1200px; }
 .timeline-grid-line { position: relative; height: 75px; border-top: 1px solid var(--gray-200); }
+.tl-end-line { position: relative; height: 0; border-top: 1px solid var(--gray-200); }
 .tl-hour-label {
   position: absolute; left: -52px; width: 44px; top: -7px;
   text-align: right; padding-right: 8px;
@@ -1509,13 +1510,13 @@ function openSlotCompleteModal(taskId, slotDate, slotIdx) {
             <div>
               <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定 (h)</div>
               <select id="slot-est-select" style="width:100%;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff;outline:none">
-                ${[0.25,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<option value="${v}"${v===est?' selected':''}>${v}</option>`).join('')}
+                ${[0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<option value="${v}"${v===est?' selected':''}>${v}</option>`).join('')}
               </select>
             </div>
           </div>
           <div style="font-size:11px;color:var(--gray-500);margin-bottom:8px">実績時間（クリックで変更）</div>
           <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px">
-            ${[0.25,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<button onclick="document.getElementById('slot-hours-input').value=${v}" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-600);font-size:11px;cursor:pointer;font-family:inherit">${v}h</button>`).join('')}
+            ${[0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<button onclick="document.getElementById('slot-hours-input').value=${v}" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-600);font-size:11px;cursor:pointer;font-family:inherit">${v}h</button>`).join('')}
             <button onclick="document.getElementById('slot-hours-input').value=0" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-400);font-size:11px;cursor:pointer;font-family:inherit">クリア</button>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -2319,6 +2320,7 @@ function renderTimeline(d) {
     <div class="timeline-wrap">
       <div class="timeline-grid">
         ${hours.map(h => `<div class="timeline-grid-line"><span class="tl-hour-label">${h}:00</span></div>`).join('')}
+        <div class="tl-end-line"><span class="tl-hour-label">23:00</span></div>
         ${showNow ? `<div class="timeline-now-line" style="top:${nowTop}px"></div>` : ''}
         ${gridCards}
       </div>
@@ -3521,7 +3523,7 @@ function openCompletionModal(taskId) {
             style="width:100%;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff;outline:none;margin-bottom:6px;">
           <div style="font-size:11px;color:var(--gray-400);margin-bottom:10px">予定：${est}h</div>
           <div style="display:flex;flex-wrap:wrap;gap:4px">
-            ${[0.25,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<button onclick="document.getElementById('actual-hours-input').value=${v}" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-600);font-size:11px;cursor:pointer;font-family:inherit">${v}h</button>`).join('')}
+            ${[0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<button onclick="document.getElementById('actual-hours-input').value=${v}" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-600);font-size:11px;cursor:pointer;font-family:inherit">${v}h</button>`).join('')}
             <button onclick="document.getElementById('actual-hours-input').value=0" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-400);font-size:11px;cursor:pointer;font-family:inherit">クリア</button>
           </div>
         </div>
@@ -3554,7 +3556,7 @@ function openEstModal(taskId) {
           <div>
             <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定時間 (h)</div>
             <select id="est-only-select" style="width:100%;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff;outline:none">
-              ${[0.25,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<option value="${v}"${v===est?' selected':''}>${v}</option>`).join('')}
+              ${[0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<option value="${v}"${v===est?' selected':''}>${v}</option>`).join('')}
             </select>
           </div>
         </div>
@@ -3627,13 +3629,13 @@ function openPartialModal(taskId, slotDate, slotIdx) {
             <div>
               <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定 (h)</div>
               <select id="partial-est-select" style="width:100%;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff;outline:none">
-                ${[0.25,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<option value="${v}"${v===est?' selected':''}>${v}</option>`).join('')}
+                ${[0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<option value="${v}"${v===est?' selected':''}>${v}</option>`).join('')}
               </select>
             </div>
           </div>
           <div style="font-size:11px;color:var(--gray-500);margin-bottom:8px">経過時間（クリックで変更）</div>
           <div style="display:flex;flex-wrap:wrap;gap:4px">
-            ${[0.25,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<button onclick="document.getElementById('partial-hours-input').value=${v}" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-600);font-size:11px;cursor:pointer;font-family:inherit">${v}h</button>`).join('')}
+            ${[0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<button onclick="document.getElementById('partial-hours-input').value=${v}" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-600);font-size:11px;cursor:pointer;font-family:inherit">${v}h</button>`).join('')}
             <button onclick="document.getElementById('partial-hours-input').value=0" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-400);font-size:11px;cursor:pointer;font-family:inherit">クリア</button>
           </div>
         </div>
@@ -4451,7 +4453,7 @@ function openEditModal(id) {
   const wtOpts = `<option value="">なし</option>` + d.workTypes.map(w =>
     `<option value="${w.id}"${task.workType===w.id?' selected':''}>${esc(w.label)}</option>`
   ).join('');
-  const hOpts = [0.25,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(h =>
+  const hOpts = [0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(h =>
     `<option value="${h}"${task.estimatedHours===h?' selected':''}>${h}</option>`
   ).join('');
 
@@ -4577,7 +4579,7 @@ function openNewTaskModal() {
   const wtOpts = `<option value="">なし</option>` + d.workTypes.map(w =>
     `<option value="${w.id}"${_qaWorkType===w.id?' selected':''}>${esc(w.label)}</option>`
   ).join('');
-  const hOpts = [0.25,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(h =>
+  const hOpts = [0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(h =>
     `<option value="${h}"${h===1?' selected':''}>${h}</option>`
   ).join('');
   const isSomeday = _qaDate === null;
@@ -4695,7 +4697,7 @@ function openRecurringTemplateEdit(tmplId) {
   const wtOpts = `<option value="">なし</option>` + d.workTypes.map(w =>
     `<option value="${w.id}"${tmpl.workType===w.id?' selected':''}>${esc(w.label)}</option>`
   ).join('');
-  const hOpts = [0.25,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(h =>
+  const hOpts = [0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(h =>
     `<option value="${h}"${tmpl.estimatedHours===h?' selected':''}>${h}</option>`
   ).join('');
 
@@ -4989,7 +4991,7 @@ function _onEmEstimatedHoursChange() {
 // ESTIMATED HOURS MODE (total / daily)
 // ============================================================
 function _emHoursSelectOpts(selected) {
-  return [0.25,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(h =>
+  return [0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(h =>
     `<option value="${h}"${selected===h?' selected':''}>${h}</option>`
   ).join('');
 }
