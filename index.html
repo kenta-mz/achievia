@@ -128,6 +128,10 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px 24px 24px; }
 .tasks-layout { display: grid; grid-template-columns: minmax(0,4fr) minmax(0,3fr); gap: 24px; }
 .tasks-left { height: calc(100dvh - 104px); overflow-y: auto; }
 .tasks-right { height: calc(100dvh - 104px); overflow: hidden; display: flex; flex-direction: column; }
+body.tl-view .tasks-left { overflow: hidden; display: flex; flex-direction: column; }
+body.tl-view #task-list-card { flex: 1; min-height: 0; overflow-y: auto; }
+body.tl-view .timeline-unscheduled { position: sticky; top: 0; z-index: 5; background: #fff; }
+body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 
 /* ── Hero ── */
 .hero-date-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
@@ -332,6 +336,10 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px 24px 24px; }
 }
 .timeline-unsched-task:hover { background: var(--gray-50); border-color: var(--gray-200); }
 .timeline-unsched-task.done { opacity: 0.5; }
+.timeline-unscheduled.active {
+  outline: 2px dashed rgba(99, 102, 241, 0.6); outline-offset: 2px;
+  background: rgba(99, 102, 241, 0.08); border-radius: 8px;
+}
 
 /* ── Notes Panel ── */
 .notes-panel {
@@ -1862,7 +1870,12 @@ function renderHero() {
     <div class="hero-count" style="margin-bottom:0">完了 ${done.length} / ${todayTasks.length} 件</div>` : ''}
   `;
 }
-function setView(mode) { viewMode = mode; render(); }
+function setView(mode) {
+  viewMode = mode;
+  if (mode === 'timeline') document.body.classList.add('tl-view');
+  else document.body.classList.remove('tl-view');
+  render();
+}
 
 // ============================================================
 // ============================================================
@@ -2286,6 +2299,9 @@ function renderTimeline(d) {
   function tlCard(task, style, h) {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
+    const bgColor   = proj ? proj.color + '22' : 'var(--ink)';
+    const textColor = proj ? proj.color        : '#fff';
+    const bdColor   = proj ? proj.color + '55' : 'transparent';
     const timeLabel = task.startTime
       ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${task.estimatedHours}h`
       : `${task.estimatedHours}h`;
@@ -2297,7 +2313,7 @@ function renderTimeline(d) {
       : '';
     const timeLine = `<div style="font-size:10px;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${timeLabel}</div>`;
     return `<div class="timeline-task${done ? ' done' : ''}" data-id="${task.id}"
-      style="${style};padding:${pad}"
+      style="${style};padding:${pad};background:${bgColor};color:${textColor};border:1.5px solid ${bdColor}"
       onclick="_onTlTaskClick(event,'${task.id}')">
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
@@ -5375,15 +5391,18 @@ function _doStartTlDrag(ev, card, taskId) {
   const grid = document.querySelector('.timeline-grid');
   if (grid) grid.appendChild(_tlSnapIndicator);
 
-  // 時刻未設定ドロップゾーンを動的生成・挿入
-  _tlDropUnschedZone = document.createElement('div');
-  _tlDropUnschedZone.className = 'tl-drop-unsched-zone';
-  _tlDropUnschedZone.textContent = '時刻未設定に戻す';
-  const tlWrap = document.querySelector('.timeline-wrap');
-  if (tlWrap && tlWrap.parentNode) {
-    tlWrap.parentNode.insertBefore(_tlDropUnschedZone, tlWrap);
+  // 時刻未設定ドロップゾーン: 既存エリアをハイライト、なければ動的生成
+  const unschedEl = document.querySelector('.timeline-unscheduled');
+  if (unschedEl) {
+    _tlDropUnschedZone = unschedEl;
+    unschedEl.classList.add('active');
   } else {
-    _tlDropUnschedZone = null; // 挿入失敗時はnullに戻す
+    _tlDropUnschedZone = document.createElement('div');
+    _tlDropUnschedZone.className = 'tl-drop-unsched-zone';
+    _tlDropUnschedZone.textContent = '時刻未設定に戻す';
+    const container = document.querySelector('#task-list > div');
+    if (container) container.insertBefore(_tlDropUnschedZone, container.firstChild);
+    else _tlDropUnschedZone = null;
   }
 
   document.body.classList.add('touch-dragging');
@@ -5489,7 +5508,14 @@ function _tlYToSnapMinutes(clientY) {
 }
 
 function _cleanupTlDrag(card) {
-  if (_tlDropUnschedZone) { _tlDropUnschedZone.remove(); _tlDropUnschedZone = null; }
+  if (_tlDropUnschedZone) {
+    if (_tlDropUnschedZone.classList.contains('timeline-unscheduled')) {
+      _tlDropUnschedZone.classList.remove('active');
+    } else {
+      _tlDropUnschedZone.remove();
+    }
+    _tlDropUnschedZone = null;
+  }
   if (_tlDragGhost)     { _tlDragGhost.remove();     _tlDragGhost     = null; }
   if (_tlSnapIndicator) { _tlSnapIndicator.remove();  _tlSnapIndicator = null; }
   if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
@@ -5871,7 +5897,14 @@ function _cleanupUnschedDrag(card) {
 // 未処理なら強制クリーンアップ → ゴースト残存・操作不能を防ぐ。
 function _tlGlobalPointerEnd() {
   if (_tlDragging || _tlDragGhost) {
-    if (_tlDropUnschedZone) { _tlDropUnschedZone.remove(); _tlDropUnschedZone = null; }
+    if (_tlDropUnschedZone) {
+      if (_tlDropUnschedZone.classList.contains('timeline-unscheduled')) {
+        _tlDropUnschedZone.classList.remove('active');
+      } else {
+        _tlDropUnschedZone.remove();
+      }
+      _tlDropUnschedZone = null;
+    }
     if (_tlDragGhost)     { _tlDragGhost.remove();     _tlDragGhost     = null; }
     if (_tlSnapIndicator) { _tlSnapIndicator.remove();  _tlSnapIndicator = null; }
     if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
