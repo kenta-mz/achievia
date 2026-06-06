@@ -2244,15 +2244,25 @@ function renderTimeline(d) {
         : startM + Math.max(Math.round((task.estimatedHours || 0.5) * 60), 15);
       return { task, startM, endM, col: 0 };
     });
-    const colEnds = [];
+    // 視覚的な下端（px）で列割り当て：min-height 28px を考慮し隣接短タスクを別列へ
+    const colBots = []; // 各列の視覚的な下端 (px)
     items.forEach(item => {
-      let col = colEnds.findIndex(e => e <= item.startM);
-      if (col === -1) { col = colEnds.length; }
-      colEnds[col] = item.endM;
+      const topPx = (item.startM - TL_START * 60) / 60 * PX;
+      const botPx = Math.max((item.endM - TL_START * 60) / 60 * PX, topPx + 28);
+      let col = colBots.findIndex(b => b <= topPx);
+      if (col === -1) { col = colBots.length; }
+      colBots[col] = botPx;
       item.col = col;
     });
     return items.map(item => {
-      const overlap  = items.filter(o => o !== item && o.startM < item.endM && o.endM > item.startM);
+      const topPx = (item.startM - TL_START * 60) / 60 * PX;
+      const botPx = Math.max((item.endM - TL_START * 60) / 60 * PX, topPx + 28);
+      const overlap = items.filter(o => {
+        if (o === item) return false;
+        const oTop = (o.startM - TL_START * 60) / 60 * PX;
+        const oBot = Math.max((o.endM - TL_START * 60) / 60 * PX, oTop + 28);
+        return oTop < botPx && oBot > topPx;
+      });
       const maxCol   = overlap.length ? Math.max(item.col, ...overlap.map(o => o.col)) : item.col;
       const totalCols = maxCol + 1;
       const top      = (item.startM - TL_START * 60) / 60 * PX;
