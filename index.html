@@ -2271,8 +2271,8 @@ function renderTimeline(d) {
       });
       const maxCol   = overlap.length ? Math.max(item.col, ...overlap.map(o => o.col)) : item.col;
       const totalCols = maxCol + 1;
-      const top      = (item.startM - TL_START * 60) / 60 * PX + 1;
-      const height   = Math.max((item.endM - item.startM) / 60 * PX - 2, 28);
+      const top      = (item.startM - TL_START * 60) / 60 * PX + 2;
+      const height   = Math.max((item.endM - item.startM) / 60 * PX - 3, 28);
       const wPct     = totalCols > 1 ? 100 / totalCols : 100;
       const lPct     = totalCols > 1 ? item.col / totalCols * 100 : 0;
       return { task: item.task, top, height, wPct, lPct };
@@ -5568,7 +5568,7 @@ function _onTlResizePointerMove(e) {
   const snappedDeltaM = Math.round((dy / TL_PX * 60) / 15) * 15;
   let newEndM = Math.max(_tlResizeStartM + 15, Math.min(TL_END_M, _tlResizeOrigEndM + snappedDeltaM));
   if (_tlResizeCard) {
-    _tlResizeCard.style.height = Math.max((newEndM - _tlResizeStartM) / 60 * TL_PX - 2, 28) + 'px';
+    _tlResizeCard.style.height = Math.max((newEndM - _tlResizeStartM) / 60 * TL_PX - 3, 28) + 'px';
   }
 }
 
@@ -5595,7 +5595,7 @@ function _onTlResizePointerUp(e) {
 
 function _onTlResizePointerCancel(e) {
   if (_tlResizeCard) {
-    const origHeight = Math.max((_tlResizeOrigEndM - _tlResizeStartM) / 60 * TL_PX - 2, 28);
+    const origHeight = Math.max((_tlResizeOrigEndM - _tlResizeStartM) / 60 * TL_PX - 3, 28);
     _tlResizeCard.style.height = origHeight + 'px';
   }
   _cleanupTlResize(e.currentTarget);
@@ -5664,8 +5664,8 @@ function _onTlTopResizePointerMove(e) {
   // クランプ後の値で top・height を計算（rawNewStartM を直接使ってはいけない）
   const clampedStartM = Math.max(TL_START_M, Math.min(_tlTopResizeOrigEndM - 15, rawNewStartM));
 
-  const newTop    = (clampedStartM - TL_START_M) / 60 * TL_PX + 1;
-  const newHeight = Math.max((_tlTopResizeOrigEndM - clampedStartM) / 60 * TL_PX - 2, 28);
+  const newTop    = (clampedStartM - TL_START_M) / 60 * TL_PX + 2;
+  const newHeight = Math.max((_tlTopResizeOrigEndM - clampedStartM) / 60 * TL_PX - 3, 28);
 
   if (_tlTopResizeCard) {
     _tlTopResizeCard.style.top    = newTop    + 'px';
@@ -5707,8 +5707,8 @@ function _onTlTopResizePointerUp(e) {
 
 function _onTlTopResizePointerCancel(e) {
   if (_tlTopResizeCard) {
-    const origTop    = (_tlTopResizeOrigStartM - TL_START_M) / 60 * TL_PX + 1;
-    const origHeight = Math.max((_tlTopResizeOrigEndM - _tlTopResizeOrigStartM) / 60 * TL_PX - 2, 28);
+    const origTop    = (_tlTopResizeOrigStartM - TL_START_M) / 60 * TL_PX + 2;
+    const origHeight = Math.max((_tlTopResizeOrigEndM - _tlTopResizeOrigStartM) / 60 * TL_PX - 3, 28);
     _tlTopResizeCard.style.top    = origTop    + 'px';
     _tlTopResizeCard.style.height = origHeight + 'px';
   }
