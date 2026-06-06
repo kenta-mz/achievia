@@ -5275,6 +5275,9 @@ function _doStartTlDrag(ev, card, taskId) {
   const task = d.tasks.find(x => x.id === taskId);
   if (!task || !task.startTime) return;
 
+  // ポインターキャプチャを先に確立（ポインターが既に離れていたら中断してゴースト残存を防ぐ）
+  try { card.setPointerCapture(ev.pointerId); } catch (err) { return; }
+
   _tlDragging   = true;
   _tlDragTaskId = taskId;
 
@@ -5301,7 +5304,6 @@ function _doStartTlDrag(ev, card, taskId) {
   const grid = document.querySelector('.timeline-grid');
   if (grid) grid.appendChild(_tlSnapIndicator);
 
-  card.setPointerCapture(ev.pointerId);
   document.body.classList.add('touch-dragging');
   if (navigator.vibrate) navigator.vibrate(30);
 }
@@ -5359,12 +5361,17 @@ function _onTlPointerCancel(e) {
   _cleanupTlDrag(e.currentTarget);
 }
 
-function _tlYToSnapMinutes(clientY) {
+function _tlYToRawMinutes(clientY) {
   const grid = document.querySelector('.timeline-grid');
-  if (!grid) return TL_START_M;
+  if (!grid) return NaN;
   const rect = grid.getBoundingClientRect();
-  const rawM = TL_START_M + (clientY - rect.top) / TL_PX * 60;
-  return Math.round(rawM / 15) * 15;
+  // scrollTop を加算してスクロール済みグリッドでも正確な時刻を返す
+  return TL_START_M + (clientY - rect.top + grid.scrollTop) / TL_PX * 60;
+}
+
+function _tlYToSnapMinutes(clientY) {
+  const rawM = _tlYToRawMinutes(clientY);
+  return isNaN(rawM) ? TL_START_M : Math.round(rawM / 15) * 15;
 }
 
 function _cleanupTlDrag(card) {
@@ -5373,7 +5380,7 @@ function _cleanupTlDrag(card) {
   if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
   document.body.classList.remove('touch-dragging');
   if (card) {
-    card.removeEventListener('pointerdown',   _onTlPointerDown);
+    // pointerdown は削除しない：キャンセル後も再ドラッグできるよう保持
     card.removeEventListener('pointermove',   _onTlPointerMove);
     card.removeEventListener('pointerup',     _onTlPointerUp);
     card.removeEventListener('pointercancel', _onTlPointerCancel);
@@ -5506,6 +5513,9 @@ function _doStartUnschedDrag(ev, card, taskId) {
   const task = d.tasks.find(x => x.id === taskId);
   if (!task) return;
 
+  // ポインターキャプチャを先に確立（ポインターが既に離れていたら中断してゴースト残存を防ぐ）
+  try { card.setPointerCapture(ev.pointerId); } catch (err) { return; }
+
   _tlDragging       = true;
   _tlDragTaskId     = taskId;
   _tlDragGrabOffsetY = 0;
@@ -5527,7 +5537,6 @@ function _doStartUnschedDrag(ev, card, taskId) {
   const grid = document.querySelector('.timeline-grid');
   if (grid) grid.appendChild(_tlSnapIndicator);
 
-  card.setPointerCapture(ev.pointerId);
   document.body.classList.add('touch-dragging');
   if (navigator.vibrate) navigator.vibrate(30);
 }
@@ -5551,10 +5560,11 @@ function _onUnschedPointerMove(e) {
   }
 
   if (_tlSnapIndicator) {
-    const snapM  = _tlYToSnapMinutes(e.clientY);
-    const inGrid = snapM >= TL_START_M && snapM < TL_END_M;
+    const rawM   = _tlYToRawMinutes(e.clientY);
+    const inGrid = !isNaN(rawM) && rawM >= TL_START_M && rawM < TL_END_M;
     _tlSnapIndicator.style.display = inGrid ? 'block' : 'none';
     if (inGrid) {
+      const snapM = Math.round(rawM / 15) * 15;
       _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
     }
   }
@@ -5565,11 +5575,13 @@ function _onUnschedPointerUp(e) {
   if (!_tlDragging) { _cleanupUnschedDrag(e.currentTarget); return; }
   _tlRecentDrag = true; setTimeout(() => { _tlRecentDrag = false; }, 400);
 
-  const durM      = _tlDragOrigEndM; // estimatedHours * 60
-  const rawStartM = _tlYToSnapMinutes(e.clientY);
+  const durM = _tlDragOrigEndM; // estimatedHours * 60
+  const rawM = _tlYToRawMinutes(e.clientY);
   // グリッド内（7:00〜23:00）にドロップした場合のみ startTime を設定
-  if (rawStartM >= TL_START_M && rawStartM < TL_END_M) {
-    const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, rawStartM));
+  // スナップ前のrawMで判定することで境界付近の誤判定（丸め込み）を防ぐ
+  if (!isNaN(rawM) && rawM >= TL_START_M && rawM < TL_END_M) {
+    const snapM        = Math.round(rawM / 15) * 15;
+    const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, snapM));
     const clampedEnd   = clampedStart + durM;
     const toHHMM = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     const d    = D();
@@ -5596,7 +5608,7 @@ function _cleanupUnschedDrag(card) {
   if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
   document.body.classList.remove('touch-dragging');
   if (card) {
-    card.removeEventListener('pointerdown',   _onUnschedPointerDown);
+    // pointerdown は削除しない：キャンセル後も再ドラッグできるよう保持
     card.removeEventListener('pointermove',   _onUnschedPointerMove);
     card.removeEventListener('pointerup',     _onUnschedPointerUp);
     card.removeEventListener('pointercancel', _onUnschedPointerCancel);
