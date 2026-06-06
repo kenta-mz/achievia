@@ -729,6 +729,33 @@ body.touch-dragging .tasks-left {
 .timeline-task:hover .tl-resize-handle::after { background: rgba(255,255,255,0.8); }
 .timeline-task.tl-resizing { transition: none; opacity: 0.85; }
 
+/* ── Timeline Top-Resize Handle (機能F) ── */
+.tl-resize-top-handle {
+  position: absolute;
+  top: 0; bottom: auto;
+  left: 0; right: 0;
+  height: 12px;
+  cursor: ns-resize;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tl-resize-top-handle::after {
+  content: '';
+  width: 24px;
+  height: 3px;
+  background: rgba(255,255,255,0.5);
+  border-radius: 2px;
+}
+.timeline-task:hover .tl-resize-top-handle::after {
+  background: rgba(255,255,255,0.8);
+}
+.timeline-task.tl-top-resizing {
+  transition: none;
+  opacity: 0.85;
+}
+
 /* ── Note Icon Buttons ── */
 .note-icon-btn {
   width: 22px; height: 22px; border: none; background: transparent; color: var(--gray-400);
@@ -2262,6 +2289,7 @@ function renderTimeline(d) {
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
       ${showAll ? timeLine : (!showSub ? '' : (proj ? '' : timeLine))}
+      ${h >= 40 ? `<div class="tl-resize-top-handle" data-top-resize-id="${task.id}"></div>` : ''}
       <div class="tl-resize-handle" data-resize-id="${task.id}"></div>
     </div>`;
   }
@@ -5259,6 +5287,11 @@ function attachTimelineDragListeners() {
     handle._tlResizeBound = true;
     handle.addEventListener('pointerdown', _onTlResizePointerDown, { passive: false });
   });
+  document.querySelectorAll('.tl-resize-top-handle').forEach(handle => {
+    if (handle._tlTopResizeBound) return;
+    handle._tlTopResizeBound = true;
+    handle.addEventListener('pointerdown', _onTlTopResizePointerDown, { passive: false });
+  });
   document.querySelectorAll('.timeline-unsched-task').forEach(card => {
     if (card._tlUnschedBound) return;
     card._tlUnschedBound = true;
@@ -5267,7 +5300,8 @@ function attachTimelineDragListeners() {
 }
 
 function _onTlPointerDown(e) {
-  if (e.target.classList.contains('tl-resize-handle')) return;
+  if (e.target.classList.contains('tl-resize-handle') ||
+      e.target.classList.contains('tl-resize-top-handle')) return;
   if (e.button !== 0 && e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
 
   const card   = e.currentTarget;
@@ -5465,6 +5499,15 @@ let _tlResizeOrigEndM = 0;
 let _tlResizeStartM   = 0;
 let _tlResizing       = false;
 
+// ── Timeline Top-Resize state ─────────────────────────────────
+let _tlTopResizeTaskId     = null;
+let _tlTopResizeCard       = null;
+let _tlTopResizeHandle     = null;   // 安全網からの removeEventListener 用
+let _tlTopResizeStartY     = 0;
+let _tlTopResizeOrigStartM = 0;
+let _tlTopResizeOrigEndM   = 0;
+let _tlTopResizing         = false;
+
 function _onTlResizePointerDown(e) {
   e.preventDefault();
   e.stopPropagation();
@@ -5547,6 +5590,128 @@ function _cleanupTlResize(handle) {
   }
   _tlResizing = false; _tlResizeTaskId = null; _tlResizeCard = null;
   _tlResizeOrigEndM = 0; _tlResizeStartM = 0;
+}
+
+// ============================================================
+// TIMELINE POINTER D&D — TOP RESIZE (機能F)
+// ============================================================
+
+function _onTlTopResizePointerDown(e) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const handle = e.currentTarget;
+  const card   = handle.closest('.timeline-task');
+  if (!card) return;
+  const taskId = card.dataset.id;
+  if (!taskId) return;
+
+  const d    = D();
+  const task = d.tasks.find(x => x.id === taskId);
+  if (!task || !task.startTime) return;
+
+  const toM = s => { const [h,m] = s.split(':').map(Number); return h*60+m; };
+
+  // setPointerCapture は DOM 変更より前に呼ぶ（B1ルール）
+  try { handle.setPointerCapture(e.pointerId); } catch { return; }
+
+  _tlTopResizing         = true;
+  _tlTopResizeTaskId     = taskId;
+  _tlTopResizeCard       = card;
+  _tlTopResizeHandle     = handle;
+  _tlTopResizeStartY     = e.clientY;
+  _tlTopResizeOrigStartM = toM(task.startTime);
+  _tlTopResizeOrigEndM   = task.endTime
+    ? toM(task.endTime)
+    : _tlTopResizeOrigStartM + Math.round((task.estimatedHours || 1) * 60);
+
+  card.classList.add('tl-top-resizing');
+
+  handle.addEventListener('pointermove', _onTlTopResizePointerMove, { passive: false });
+  handle.addEventListener('pointerup',   _onTlTopResizePointerUp);
+  handle.addEventListener('pointercancel', _onTlTopResizePointerCancel);
+}
+
+function _onTlTopResizePointerMove(e) {
+  if (!_tlTopResizing) return;
+  e.preventDefault();
+
+  const dy = e.clientY - _tlTopResizeStartY;
+  const rawDeltaM     = dy / TL_PX * 60;
+  const snappedDeltaM = Math.round(rawDeltaM / 15) * 15;
+
+  const rawNewStartM  = _tlTopResizeOrigStartM + snappedDeltaM;
+  // クランプ後の値で top・height を計算（rawNewStartM を直接使ってはいけない）
+  const clampedStartM = Math.max(TL_START_M, Math.min(_tlTopResizeOrigEndM - 15, rawNewStartM));
+
+  const newTop    = (clampedStartM - TL_START_M) / 60 * TL_PX;
+  const newHeight = Math.max((_tlTopResizeOrigEndM - clampedStartM) / 60 * TL_PX, 28);
+
+  if (_tlTopResizeCard) {
+    _tlTopResizeCard.style.top    = newTop    + 'px';
+    _tlTopResizeCard.style.height = newHeight + 'px';
+  }
+}
+
+function _onTlTopResizePointerUp(e) {
+  if (!_tlTopResizing) return;
+
+  _tlRecentDrag = true;
+  setTimeout(() => { _tlRecentDrag = false; }, 400);
+
+  const dy = e.clientY - _tlTopResizeStartY;
+  const rawDeltaM     = dy / TL_PX * 60;
+  const snappedDeltaM = Math.round(rawDeltaM / 15) * 15;
+
+  const rawNewStartM = _tlTopResizeOrigStartM + snappedDeltaM;
+  const newStartM    = Math.max(TL_START_M, Math.min(_tlTopResizeOrigEndM - 15, rawNewStartM));
+  const newEstHours  = (_tlTopResizeOrigEndM - newStartM) / 60;
+  const toHHMM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+
+  // taskId を cleanup 前にローカルに退避（cleanup で null になる）
+  const taskId       = _tlTopResizeTaskId;
+  const newStartTime = toHHMM(newStartM);
+
+  _cleanupTlTopResize(); // commit より先（B2ルール：DOM参照を手放してから commit）
+
+  const d    = D();
+  const task = d.tasks.find(x => x.id === taskId);
+  if (task) {
+    task.startTime      = newStartTime;
+    task.estimatedHours = newEstHours;
+    // task.endTime は更新しない（固定）
+    commit();
+  }
+}
+
+function _onTlTopResizePointerCancel(e) {
+  if (_tlTopResizeCard) {
+    const origTop    = (_tlTopResizeOrigStartM - TL_START_M) / 60 * TL_PX;
+    const origHeight = Math.max((_tlTopResizeOrigEndM - _tlTopResizeOrigStartM) / 60 * TL_PX, 28);
+    _tlTopResizeCard.style.top    = origTop    + 'px';
+    _tlTopResizeCard.style.height = origHeight + 'px';
+  }
+  _cleanupTlTopResize();
+  // commit しない（変更破棄）
+}
+
+function _cleanupTlTopResize() {
+  if (_tlTopResizeCard) _tlTopResizeCard.classList.remove('tl-top-resizing');
+
+  if (_tlTopResizeHandle) {
+    _tlTopResizeHandle.removeEventListener('pointermove', _onTlTopResizePointerMove);
+    _tlTopResizeHandle.removeEventListener('pointerup',   _onTlTopResizePointerUp);
+    _tlTopResizeHandle.removeEventListener('pointercancel', _onTlTopResizePointerCancel);
+    // pointerdown は削除しない（B2ルール）
+  }
+
+  _tlTopResizing         = false;
+  _tlTopResizeTaskId     = null;
+  _tlTopResizeCard       = null;
+  _tlTopResizeHandle     = null;
+  _tlTopResizeOrigStartM = 0;
+  _tlTopResizeOrigEndM   = 0;
+  _tlTopResizeStartY     = 0;
 }
 
 // ============================================================
@@ -5700,6 +5865,17 @@ function _tlGlobalPointerEnd() {
     if (_tlResizeCard) _tlResizeCard.classList.remove('tl-resizing');
     _tlResizing = false; _tlResizeTaskId = null; _tlResizeCard = null;
     _tlResizeOrigEndM = 0; _tlResizeStartM = 0;
+  }
+  if (_tlTopResizing || _tlTopResizeCard) {
+    if (_tlTopResizeCard) _tlTopResizeCard.classList.remove('tl-top-resizing');
+    if (_tlTopResizeHandle) {
+      _tlTopResizeHandle.removeEventListener('pointermove', _onTlTopResizePointerMove);
+      _tlTopResizeHandle.removeEventListener('pointerup',   _onTlTopResizePointerUp);
+      _tlTopResizeHandle.removeEventListener('pointercancel', _onTlTopResizePointerCancel);
+    }
+    _tlTopResizing = false; _tlTopResizeTaskId = null; _tlTopResizeCard = null;
+    _tlTopResizeHandle = null; _tlTopResizeOrigStartM = 0; _tlTopResizeOrigEndM = 0;
+    _tlTopResizeStartY = 0;
   }
 }
 window.addEventListener('pointerup',     _tlGlobalPointerEnd);
