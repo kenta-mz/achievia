@@ -5327,7 +5327,12 @@ function _onTlPointerMove(e) {
   }
   const snapM = _tlYToSnapMinutes(e.clientY - _tlDragGrabOffsetY);
   if (_tlSnapIndicator) {
-    _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
+    if (isNaN(snapM)) {
+      _tlSnapIndicator.style.display = 'none';
+    } else {
+      _tlSnapIndicator.style.display = '';
+      _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
+    }
   }
 }
 
@@ -5336,24 +5341,25 @@ function _onTlPointerUp(e) {
   if (!_tlDragging) { _cleanupTlDrag(e.currentTarget); return; }
   _tlRecentDrag = true; setTimeout(() => { _tlRecentDrag = false; }, 400);
 
-  const newStartM = _tlYToSnapMinutes(e.clientY - _tlDragGrabOffsetY);
-  const durM      = _tlDragOrigEndM - _tlDragOrigStartM;
-  // clampedEnd 修正：durM を考慮して start をクリップ
-  const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, newStartM));
-  const clampedEnd   = clampedStart + durM;
-
-  const toHHMM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
-
-  const d    = D();
-  const task = d.tasks.find(x => x.id === _tlDragTaskId);
-  if (task) {
-    task.startTime = toHHMM(clampedStart);
-    task.endTime   = toHHMM(clampedEnd);
+  const snapM = _tlYToSnapMinutes(e.clientY - _tlDragGrabOffsetY);
+  if (!isNaN(snapM)) {
+    const durM         = _tlDragOrigEndM - _tlDragOrigStartM;
+    const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, snapM));
+    const clampedEnd   = clampedStart + durM;
+    const toHHMM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+    const d    = D();
+    const task = d.tasks.find(x => x.id === _tlDragTaskId);
+    if (task) {
+      task.startTime = toHHMM(clampedStart);
+      task.endTime   = toHHMM(clampedEnd);
+    }
+    // cleanup → commit の順序
+    _cleanupTlDrag(e.currentTarget);
+    if (task) commit();
+  } else {
+    // グリッド外ドロップ → キャンセル（元の位置を維持）
+    _cleanupTlDrag(e.currentTarget);
   }
-
-  // cleanup → commit の順序
-  _cleanupTlDrag(e.currentTarget);
-  if (task) commit();
 }
 
 function _onTlPointerCancel(e) {
@@ -5365,13 +5371,15 @@ function _tlYToRawMinutes(clientY) {
   const grid = document.querySelector('.timeline-grid');
   if (!grid) return NaN;
   const rect = grid.getBoundingClientRect();
+  // コンテナ可視範囲外なら NaN を返す（スクロール量に関係なくキャンセル判定に使う）
+  if (clientY < rect.top || clientY >= rect.bottom) return NaN;
   // scrollTop を加算してスクロール済みグリッドでも正確な時刻を返す
   return TL_START_M + (clientY - rect.top + grid.scrollTop) / TL_PX * 60;
 }
 
 function _tlYToSnapMinutes(clientY) {
   const rawM = _tlYToRawMinutes(clientY);
-  return isNaN(rawM) ? TL_START_M : Math.round(rawM / 15) * 15;
+  return isNaN(rawM) ? NaN : Math.round(rawM / 15) * 15;
 }
 
 function _cleanupTlDrag(card) {
@@ -5616,6 +5624,29 @@ function _cleanupUnschedDrag(card) {
   _tlDragTaskId = null; _tlDragging = false; _tlDragTimer = null;
   _tlDragOrigStartM = 0; _tlDragOrigEndM = 0; _tlPointerType = ''; _tlDragGrabOffsetY = 0;
 }
+
+// ── グローバル D&D セーフティネット ──────────────────────────────────
+// pointerup/cancel がカード要素のリスナーに届かなかった場合のフォールバック。
+// バブル順：カードリスナー先行 → window は後 なので、
+// 正常処理済みなら _tlDragging=false / _tlDragGhost=null → 何もしない。
+// 未処理なら強制クリーンアップ → ゴースト残存・操作不能を防ぐ。
+function _tlGlobalPointerEnd() {
+  if (_tlDragging || _tlDragGhost) {
+    if (_tlDragGhost)     { _tlDragGhost.remove();     _tlDragGhost     = null; }
+    if (_tlSnapIndicator) { _tlSnapIndicator.remove();  _tlSnapIndicator = null; }
+    if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
+    document.body.classList.remove('touch-dragging');
+    _tlDragTaskId = null; _tlDragging = false; _tlDragTimer = null;
+    _tlDragOrigStartM = 0; _tlDragOrigEndM = 0; _tlPointerType = ''; _tlDragGrabOffsetY = 0;
+  }
+  if (_tlResizing) {
+    if (_tlResizeCard) _tlResizeCard.classList.remove('tl-resizing');
+    _tlResizing = false; _tlResizeTaskId = null; _tlResizeCard = null;
+    _tlResizeOrigEndM = 0; _tlResizeStartM = 0;
+  }
+}
+window.addEventListener('pointerup',     _tlGlobalPointerEnd);
+window.addEventListener('pointercancel', _tlGlobalPointerEnd);
 
 // ============================================================
 // MASTER RENDER
