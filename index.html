@@ -2238,8 +2238,10 @@ function renderTimeline(d) {
   function calcLayout(tasks) {
     const items = tasks.map(task => {
       const startM = toM(task.startTime);
-      const durM   = Math.max(Math.round((task.estimatedHours || 0.5) * 60), 30);
-      return { task, startM, endM: startM + durM, col: 0 };
+      const endM   = task.endTime
+        ? Math.max(toM(task.endTime), startM + 15)
+        : startM + Math.max(Math.round((task.estimatedHours || 0.5) * 60), 15);
+      return { task, startM, endM, col: 0 };
     });
     const colEnds = [];
     items.forEach(item => {
@@ -2289,7 +2291,7 @@ function renderTimeline(d) {
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
       ${showAll ? timeLine : (!showSub ? '' : (proj ? '' : timeLine))}
-      ${h >= 40 ? `<div class="tl-resize-top-handle" data-top-resize-id="${task.id}"></div>` : ''}
+      ${h >= 28 ? `<div class="tl-resize-top-handle" data-top-resize-id="${task.id}"></div>` : ''}
       <div class="tl-resize-handle" data-resize-id="${task.id}"></div>
     </div>`;
   }
@@ -5668,9 +5670,10 @@ function _onTlTopResizePointerUp(e) {
   const newEstHours  = (_tlTopResizeOrigEndM - newStartM) / 60;
   const toHHMM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
 
-  // taskId を cleanup 前にローカルに退避（cleanup で null になる）
+  // taskId・newEndTime を cleanup 前にローカルに退避（cleanup で null になる）
   const taskId       = _tlTopResizeTaskId;
   const newStartTime = toHHMM(newStartM);
+  const newEndTime   = toHHMM(_tlTopResizeOrigEndM); // 固定 endTime を退避
 
   _cleanupTlTopResize(); // commit より先（B2ルール：DOM参照を手放してから commit）
 
@@ -5679,7 +5682,7 @@ function _onTlTopResizePointerUp(e) {
   if (task) {
     task.startTime      = newStartTime;
     task.estimatedHours = newEstHours;
-    // task.endTime は更新しない（固定）
+    task.endTime        = newEndTime; // endTime を明示設定（estimatedHours と整合させる）
     commit();
   }
 }
