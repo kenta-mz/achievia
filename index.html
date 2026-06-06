@@ -695,6 +695,25 @@ body.touch-dragging .tasks-left {
   position: absolute; left: 0; right: 0; height: 2px;
   background: rgba(99,102,241,0.6); pointer-events: none; z-index: 10;
 }
+.tl-drop-unsched-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  padding: 10px 0;
+  border: 2px dashed var(--gray-200);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--gray-400);
+  background: transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  pointer-events: none;
+}
+.tl-drop-unsched-zone.active {
+  border-color: rgba(99, 102, 241, 0.6);
+  background: rgba(99, 102, 241, 0.08);
+  color: rgba(99, 102, 241, 0.9);
+}
 
 /* ── Timeline Resize Handle ── */
 .tl-resize-handle {
@@ -5206,6 +5225,7 @@ let _tlDragTaskId     = null;
 let _tlDragGhost      = null;
 let _tlDragSource     = null;
 let _tlSnapIndicator  = null;
+let _tlDropUnschedZone = null;
 let _tlDragStartY     = 0;
 let _tlDragOrigStartM = 0;
 let _tlDragOrigEndM   = 0;
@@ -5304,6 +5324,17 @@ function _doStartTlDrag(ev, card, taskId) {
   const grid = document.querySelector('.timeline-grid');
   if (grid) grid.appendChild(_tlSnapIndicator);
 
+  // 時刻未設定ドロップゾーンを動的生成・挿入
+  _tlDropUnschedZone = document.createElement('div');
+  _tlDropUnschedZone.className = 'tl-drop-unsched-zone';
+  _tlDropUnschedZone.textContent = '時刻未設定に戻す';
+  const tlWrap = document.querySelector('.timeline-wrap');
+  if (tlWrap && tlWrap.parentNode) {
+    tlWrap.parentNode.insertBefore(_tlDropUnschedZone, tlWrap);
+  } else {
+    _tlDropUnschedZone = null; // 挿入失敗時はnullに戻す
+  }
+
   document.body.classList.add('touch-dragging');
   if (navigator.vibrate) navigator.vibrate(30);
 }
@@ -5334,6 +5365,12 @@ function _onTlPointerMove(e) {
       _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
     }
   }
+  // ドロップゾーンのハイライト更新
+  if (_tlDropUnschedZone) {
+    const zRect = _tlDropUnschedZone.getBoundingClientRect();
+    _tlDropUnschedZone.classList.toggle('active',
+      e.clientY >= zRect.top && e.clientY <= zRect.bottom);
+  }
 }
 
 function _onTlPointerUp(e) {
@@ -5357,8 +5394,26 @@ function _onTlPointerUp(e) {
     _cleanupTlDrag(e.currentTarget);
     if (task) commit();
   } else {
-    // グリッド外ドロップ → キャンセル（元の位置を維持）
-    _cleanupTlDrag(e.currentTarget);
+    // グリッド外ドロップ → ゾーン判定
+    let overZone = false;
+    if (_tlDropUnschedZone) {
+      const zRect = _tlDropUnschedZone.getBoundingClientRect();
+      overZone = e.clientY >= zRect.top && e.clientY <= zRect.bottom;
+    }
+    if (overZone) {
+      // 時刻未設定ゾーンへのドロップ → startTime/endTime をクリア
+      const d    = D();
+      const task = d.tasks.find(x => x.id === _tlDragTaskId);
+      if (task) {
+        task.startTime = null;
+        task.endTime   = null;
+      }
+      _cleanupTlDrag(e.currentTarget);
+      if (task) commit();
+    } else {
+      // ゾーン外（下端・サイドパネル外など）→ キャンセル
+      _cleanupTlDrag(e.currentTarget);
+    }
   }
 }
 
@@ -5383,6 +5438,7 @@ function _tlYToSnapMinutes(clientY) {
 }
 
 function _cleanupTlDrag(card) {
+  if (_tlDropUnschedZone) { _tlDropUnschedZone.remove(); _tlDropUnschedZone = null; }
   if (_tlDragGhost)     { _tlDragGhost.remove();     _tlDragGhost     = null; }
   if (_tlSnapIndicator) { _tlSnapIndicator.remove();  _tlSnapIndicator = null; }
   if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
@@ -5632,6 +5688,7 @@ function _cleanupUnschedDrag(card) {
 // 未処理なら強制クリーンアップ → ゴースト残存・操作不能を防ぐ。
 function _tlGlobalPointerEnd() {
   if (_tlDragging || _tlDragGhost) {
+    if (_tlDropUnschedZone) { _tlDropUnschedZone.remove(); _tlDropUnschedZone = null; }
     if (_tlDragGhost)     { _tlDragGhost.remove();     _tlDragGhost     = null; }
     if (_tlSnapIndicator) { _tlSnapIndicator.remove();  _tlSnapIndicator = null; }
     if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
