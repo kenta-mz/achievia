@@ -295,14 +295,8 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px 24px 24px; }
 /* ── Timeline ── */
 .timeline-wrap { position: relative; padding-left: 52px; }
 .timeline-grid { position: relative; height: 1200px; }
-.timeline-grid-line { position: relative; height: 75px; border-top: 1px solid var(--gray-300); }
-.timeline-grid-line::after {
-  content: ''; position: absolute;
-  left: 0; right: 0; top: 37.5px;
-  border-top: 1px dashed var(--gray-300);
-  pointer-events: none;
-}
-.tl-end-line { position: relative; height: 0; border-top: 1px solid var(--gray-300); }
+.tl-hour-line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--gray-300); pointer-events: none; }
+.tl-half-line { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--gray-300); pointer-events: none; }
 .tl-hour-label {
   position: absolute; left: -52px; width: 44px; top: -7px;
   text-align: right; padding-right: 8px;
@@ -2335,8 +2329,11 @@ function renderTimeline(d) {
     </div>` : ''}
     <div class="timeline-wrap">
       <div class="timeline-grid">
-        ${hours.map(h => `<div class="timeline-grid-line"><span class="tl-hour-label">${h}:00</span></div>`).join('')}
-        <div class="tl-end-line"><span class="tl-hour-label">23:00</span></div>
+        ${[...hours, TL_END].map(h => {
+          const top = (h - TL_START) * PX;
+          const half = h < TL_END ? `<div class="tl-half-line" style="top:${top + PX / 2}px"></div>` : '';
+          return `<div class="tl-hour-line" style="top:${top}px"><span class="tl-hour-label">${h}:00</span></div>${half}`;
+        }).join('')}
         ${showNow ? `<div class="timeline-now-line" style="top:${nowTop}px"></div>` : ''}
         ${gridCards}
       </div>
