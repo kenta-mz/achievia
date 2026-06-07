@@ -443,8 +443,8 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 .review-section-hdr h3 { font-size: 14px; font-weight: 600; margin: 0; }
 /* Project cards */
 .review-proj-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
-@media (max-width: 900px) { .review-proj-grid { grid-template-columns: repeat(2,1fr); } }
-@media (max-width: 540px) { .review-proj-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .review-proj-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 540px) { .review-proj-grid { grid-template-columns: minmax(0,1fr); } }
 .review-proj-card { border: 1px solid var(--border); border-radius: 10px; padding: 14px; background: #fff; transition: border-color .15s, box-shadow .15s; }
 .review-proj-card:hover { border-color: var(--gray-300); box-shadow: var(--shadow-sm); }
 .review-proj-name { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
@@ -657,7 +657,7 @@ input[type="number"].no-spin::-webkit-outer-spin-button { -webkit-appearance: no
   .header-nav { display: none; }
   .bottom-nav { display: flex; }
   main { padding: 16px 16px 72px; }
-  .tasks-layout { grid-template-columns: 1fr; }
+  .tasks-layout { grid-template-columns: minmax(0,1fr); }
   .tasks-left { height: auto; overflow-y: visible; }
   .tasks-right { height: auto; overflow: visible; display: block; }
   .notes-panel { height: auto; position: static; flex: none; }
