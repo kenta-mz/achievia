@@ -130,7 +130,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px 24px 24px; }
 .tasks-right { height: calc(100dvh - 104px); overflow: hidden; display: flex; flex-direction: column; }
 body.tl-view .tasks-left { overflow: hidden; display: flex; flex-direction: column; }
 body.tl-view #task-list-card { flex: 1; min-height: 0; overflow-y: auto; }
-body.tl-view .timeline-unscheduled { position: sticky; top: 0; z-index: 5; background: #fff; }
+body.tl-view .timeline-unscheduled { position: sticky; top: 0; z-index: 5; background: var(--gray-50); }
 body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 
 /* ── Hero ── */
@@ -2303,9 +2303,9 @@ function renderTimeline(d) {
   function tlCard(task, style, h) {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
-    const bgColor   = proj ? proj.color + '22' : 'var(--gray-100)';
-    const textColor = proj ? proj.color        : 'var(--gray-600)';
-    const bdColor   = proj ? proj.color + '55' : 'var(--gray-300)';
+    const bgColor   = proj ? proj.color + '33' : 'var(--gray-200)';
+    const textColor = proj ? proj.color        : 'var(--gray-700)';
+    const bdColor   = proj ? proj.color + '70' : 'var(--gray-400)';
     const timeLabel = task.startTime
       ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${task.estimatedHours}h`
       : `${task.estimatedHours}h`;
