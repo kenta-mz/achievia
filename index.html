@@ -5728,7 +5728,7 @@ function _onTlPointerMove(e) {
     _tlDragGhost.style.left = (e.clientX + 8) + 'px';
     _tlDragGhost.style.top  = (e.clientY - 10) + 'px';
   }
-  const snapM = _tlYToSnapMinutes(e.clientY - _tlDragGrabOffsetY);
+  const snapM = _tlYToSnapMinutes(e.clientX, e.clientY - _tlDragGrabOffsetY, true);
   if (_tlSnapIndicator) {
     if (isNaN(snapM)) {
       _tlSnapIndicator.style.display = 'none';
@@ -5775,7 +5775,7 @@ function _onTlPointerUp(e) {
     return;
   }
 
-  const snapM = _tlYToSnapMinutes(e.clientY - _tlDragGrabOffsetY);
+  const snapM = _tlYToSnapMinutes(e.clientX, e.clientY - _tlDragGrabOffsetY, true);
   if (!isNaN(snapM)) {
     const durM         = _tlDragOrigEndM - _tlDragOrigStartM;
     const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, snapM));
@@ -5819,26 +5819,35 @@ function _onTlPointerCancel(e) {
   _cleanupTlDrag(e.currentTarget);
 }
 
-function _tlYToRawMinutes(clientY) {
+function _tlYToRawMinutes(clientX, clientY, excludeUnschedZone = false) {
   const grid = document.querySelector('.timeline-grid');
   if (!grid) return NaN;
   // sticky な時刻未設定エリア（既存 or D&D中の動的生成ゾーン）が
   // 視覚的にグリッド上に重なっている場合はグリッド外として扱う
   // （スクロール時に座標が重複し、誤ってグリッドへドロップ判定されてしまうため）
-  const unsched = document.querySelector('.timeline-unscheduled') || document.querySelector('.tl-drop-unsched-zone');
-  if (unsched) {
-    const uRect = unsched.getBoundingClientRect();
-    if (clientY >= uRect.top && clientY <= uRect.bottom) return NaN;
+  // ドラッグ元種別による分岐：機能B/E・機能D（タイムライン上 / 時刻未設定カードのドラッグ）は
+  // ソースエリアとグリッドの視覚的重なりを除外する必要があるため true を渡す。
+  // 機能2（いつかやるカードのドラッグ）はこの除外が無関係な領域に適用されると
+  // グリッド内なのにガイド線が消えてしまうため false（デフォルト）とする。
+  if (excludeUnschedZone) {
+    const unsched = document.querySelector('.timeline-unscheduled') || document.querySelector('.tl-drop-unsched-zone');
+    if (unsched) {
+      const uRect = unsched.getBoundingClientRect();
+      if (clientY >= uRect.top && clientY <= uRect.bottom) return NaN;
+    }
   }
   const rect = grid.getBoundingClientRect();
   // コンテナ可視範囲外なら NaN を返す（スクロール量に関係なくキャンセル判定に使う）
   if (clientY < rect.top || clientY >= rect.bottom) return NaN;
+  // X軸範囲外（.timeline-grid の左右範囲外＝右パネルの .someday-section 等）も除外する。
+  // sticky除外（縦方向の視覚的重なり対策）とは独立した、横方向の範囲チェック
+  if (clientX < rect.left || clientX >= rect.right) return NaN;
   // scrollTop を加算してスクロール済みグリッドでも正確な時刻を返す
   return TL_START_M + (clientY - rect.top + grid.scrollTop) / TL_PX * 60;
 }
 
-function _tlYToSnapMinutes(clientY) {
-  const rawM = _tlYToRawMinutes(clientY);
+function _tlYToSnapMinutes(clientX, clientY, excludeUnschedZone = false) {
+  const rawM = _tlYToRawMinutes(clientX, clientY, excludeUnschedZone);
   return isNaN(rawM) ? NaN : Math.round(rawM / 15) * 15;
 }
 
@@ -6168,13 +6177,22 @@ function _onUnschedPointerMove(e) {
     _tlDragGhost.style.top  = (e.clientY - 10) + 'px';
   }
 
-  if (_tlSnapIndicator) {
-    const rawM   = _tlYToRawMinutes(e.clientY);
-    const inGrid = !isNaN(rawM) && rawM >= TL_START_M && rawM < TL_END_M;
-    _tlSnapIndicator.style.display = inGrid ? 'block' : 'none';
-    if (inGrid) {
-      const snapM = Math.round(rawM / 15) * 15;
-      _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
+  // ドロップ先ハイライト更新：「いつかやる」セクションを最優先（elementFromPoint で先行判定）。
+  // _onTlPointerMove(機能B/E)と全く同じ構造。該当すればグリッド内ガイド線は非表示にする
+  const somedaySectionEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.someday-section') || null;
+  if (somedaySectionEl) {
+    somedaySectionEl.classList.add('tl-drop-target');
+    if (_tlSnapIndicator) _tlSnapIndicator.style.display = 'none';
+  } else {
+    document.querySelectorAll('.someday-section.tl-drop-target').forEach(el => el.classList.remove('tl-drop-target'));
+    if (_tlSnapIndicator) {
+      const rawM   = _tlYToRawMinutes(e.clientX, e.clientY, true);
+      const inGrid = !isNaN(rawM) && rawM >= TL_START_M && rawM < TL_END_M;
+      _tlSnapIndicator.style.display = inGrid ? 'block' : 'none';
+      if (inGrid) {
+        const snapM = Math.round(rawM / 15) * 15;
+        _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
+      }
     }
   }
 }
@@ -6184,8 +6202,24 @@ function _onUnschedPointerUp(e) {
   if (!_tlDragging) { _cleanupUnschedDrag(e.currentTarget); return; }
   _tlRecentDrag = true; setTimeout(() => { _tlRecentDrag = false; }, 400);
 
+  // 最優先：「いつかやる」セクション上にドロップされたか先行判定（elementFromPoint）。
+  // _onTlPointerUp(機能B/E)の構造を踏襲。グリッド内判定より前に行う
+  const somedaySectionEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.someday-section') || null;
+  if (somedaySectionEl) {
+    const d    = D();
+    const task = d.tasks.find(x => x.id === _tlDragTaskId);
+    if (task) {
+      task.scheduledDate = null;
+      task.startTime     = null;
+      task.endTime       = null;
+    }
+    _cleanupUnschedDrag(e.currentTarget);
+    if (task) commit();
+    return;
+  }
+
   const durM = _tlDragOrigEndM; // estimatedHours * 60
-  const rawM = _tlYToRawMinutes(e.clientY);
+  const rawM = _tlYToRawMinutes(e.clientX, e.clientY, true);
   // グリッド内（7:00〜23:00）にドロップした場合のみ startTime を設定
   // スナップ前のrawMで判定することで境界付近の誤判定（丸め込み）を防ぐ
   if (!isNaN(rawM) && rawM >= TL_START_M && rawM < TL_END_M) {
@@ -6203,6 +6237,7 @@ function _onUnschedPointerUp(e) {
     if (task) commit();
     return;
   }
+  // それ以外 → 何も変更せずクリーンアップのみ
   _cleanupUnschedDrag(e.currentTarget);
 }
 
@@ -6212,6 +6247,7 @@ function _onUnschedPointerCancel(e) {
 }
 
 function _cleanupUnschedDrag(card) {
+  document.querySelectorAll('.someday-section.tl-drop-target').forEach(el => el.classList.remove('tl-drop-target'));
   if (_tlDragGhost)     { _tlDragGhost.remove();     _tlDragGhost     = null; }
   if (_tlSnapIndicator) { _tlSnapIndicator.remove();  _tlSnapIndicator = null; }
   if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
@@ -6242,6 +6278,9 @@ let _somedayDragTimer     = null;
 let _somedayRecentDrag    = false;
 let _somedaySnapIndicator = null;
 let _somedayDragDurM      = 0;
+// 時刻未設定ドロップゾーン（機能2専用。機能B/E専用の _tlDropUnschedZone とは
+// 完全に分離する。命名規則 _tl* / _someday* を踏襲し状態の衝突を避ける）
+let _somedayDropUnschedZone = null;
 // 機能Aタッチブリッジ（_onTaskTouchStart）との競合回避フラグ。
 // Pointer Events は仕様上 Touch Events より先に発火するため、
 // _onSomedayPointerDown の最初の同期処理でセットすれば _onTaskTouchStart 側で参照可能
@@ -6317,6 +6356,21 @@ function _doStartSomedayDrag(ev, card, taskId) {
   const grid = document.querySelector('.timeline-grid');
   if (grid) grid.appendChild(_somedaySnapIndicator);
 
+  // 時刻未設定ドロップゾーン: 既存エリアをハイライト、なければ動的生成
+  // （_doStartTlDrag(機能B/E)と同様の処理。ただし状態変数は専用の _somedayDropUnschedZone を使う）
+  const unschedEl = document.querySelector('.timeline-unscheduled');
+  if (unschedEl) {
+    _somedayDropUnschedZone = unschedEl;
+    unschedEl.classList.add('active');
+  } else {
+    _somedayDropUnschedZone = document.createElement('div');
+    _somedayDropUnschedZone.className = 'tl-drop-unsched-zone';
+    _somedayDropUnschedZone.textContent = '時刻未設定に戻す';
+    const wrap = document.querySelector('.timeline-wrap');
+    if (wrap && wrap.parentNode) wrap.parentNode.insertBefore(_somedayDropUnschedZone, wrap);
+    else _somedayDropUnschedZone = null;
+  }
+
   document.body.classList.add('touch-dragging');
   if (navigator.vibrate) navigator.vibrate(30);
 }
@@ -6343,7 +6397,7 @@ function _onSomedayPointerMove(e) {
   const gridEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.timeline-grid') || null;
   if (_somedaySnapIndicator) {
     if (gridEl) {
-      const rawM   = _tlYToRawMinutes(e.clientY);
+      const rawM   = _tlYToRawMinutes(e.clientX, e.clientY);
       const inGrid = !isNaN(rawM) && rawM >= TL_START_M && rawM < TL_END_M;
       _somedaySnapIndicator.style.display = inGrid ? 'block' : 'none';
       if (inGrid) {
@@ -6354,6 +6408,16 @@ function _onSomedayPointerMove(e) {
       _somedaySnapIndicator.style.display = 'none';
     }
   }
+
+  // グリッド外の場合、時刻未設定ゾーンとの交差判定（X/Y両軸）でハイライトを更新する
+  if (!gridEl && _somedayDropUnschedZone) {
+    const zRect = _somedayDropUnschedZone.getBoundingClientRect();
+    const overZone = e.clientX >= zRect.left && e.clientX <= zRect.right &&
+                     e.clientY >= zRect.top  && e.clientY <= zRect.bottom;
+    _somedayDropUnschedZone.classList.toggle('active', overZone);
+  } else if (gridEl && _somedayDropUnschedZone) {
+    _somedayDropUnschedZone.classList.remove('active');
+  }
 }
 
 function _onSomedayPointerUp(e) {
@@ -6362,8 +6426,11 @@ function _onSomedayPointerUp(e) {
   _somedayRecentDrag = true; setTimeout(() => { _somedayRecentDrag = false; }, 400);
 
   const gridEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.timeline-grid') || null;
-  const rawM   = gridEl ? _tlYToRawMinutes(e.clientY) : NaN;
+  const rawM   = gridEl ? _tlYToRawMinutes(e.clientX, e.clientY) : NaN;
 
+  // ゾーン優先順位（機能2）：①グリッド内最優先 → ②時刻未設定ゾーン → ③何もしない
+  // 「具体的な時刻へのスケジュール（グリッド内ドロップ）」が主要ユースケースであり、
+  // 時刻未設定化は副次的なため、グリッド内判定を優先する（機能Dとは非対称・意図的）
   if (gridEl && !isNaN(rawM) && rawM >= TL_START_M && rawM < TL_END_M) {
     const snapM        = Math.round(rawM / 15) * 15;
     const durM         = _somedayDragDurM;
@@ -6382,7 +6449,26 @@ function _onSomedayPointerUp(e) {
     if (task) commit();
     return;
   }
-  // グリッド外・範囲外ドロップ → 何も変更せずクリーンアップのみ
+
+  // グリッド内でない場合、時刻未設定ゾーンとの交差判定（X/Y両軸）
+  if (_somedayDropUnschedZone) {
+    const zRect = _somedayDropUnschedZone.getBoundingClientRect();
+    const overZone = e.clientX >= zRect.left && e.clientX <= zRect.right &&
+                     e.clientY >= zRect.top  && e.clientY <= zRect.bottom;
+    if (overZone) {
+      const d    = D();
+      const task = d.tasks.find(x => x.id === _somedayDragTaskId);
+      if (task) {
+        task.scheduledDate = todayStr();
+        task.startTime     = null;
+        task.endTime       = null;
+      }
+      _cleanupSomedayDrag(e.currentTarget);
+      if (task) commit();
+      return;
+    }
+  }
+  // どちらでもない → 変更なしでクリーンアップのみ
   _cleanupSomedayDrag(e.currentTarget);
 }
 
@@ -6392,6 +6478,14 @@ function _onSomedayPointerCancel(e) {
 }
 
 function _cleanupSomedayDrag(card) {
+  if (_somedayDropUnschedZone) {
+    if (_somedayDropUnschedZone.classList.contains('timeline-unscheduled')) {
+      _somedayDropUnschedZone.classList.remove('active');
+    } else {
+      _somedayDropUnschedZone.remove();
+    }
+    _somedayDropUnschedZone = null;
+  }
   if (_somedayDragGhost)     { _somedayDragGhost.remove();     _somedayDragGhost     = null; }
   if (_somedaySnapIndicator) { _somedaySnapIndicator.remove(); _somedaySnapIndicator = null; }
   if (_somedayDragSource) {
@@ -6444,6 +6538,14 @@ function _tlGlobalPointerEnd() {
   }
   if (_somedayDragging || _somedayDragGhost) {
     document.querySelectorAll('.someday-section.tl-drop-target').forEach(el => el.classList.remove('tl-drop-target'));
+    if (_somedayDropUnschedZone) {
+      if (_somedayDropUnschedZone.classList.contains('timeline-unscheduled')) {
+        _somedayDropUnschedZone.classList.remove('active');
+      } else {
+        _somedayDropUnschedZone.remove();
+      }
+      _somedayDropUnschedZone = null;
+    }
     if (_somedayDragGhost)      { _somedayDragGhost.remove();      _somedayDragGhost      = null; }
     if (_somedaySnapIndicator)  { _somedaySnapIndicator.remove();  _somedaySnapIndicator  = null; }
     if (_somedayDragSource) {
