@@ -55,6 +55,15 @@ code { font-family: monospace; font-size: 12px; background: var(--gray-100); pad
 .connect-card h2 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .connect-card p { font-size: 12px; color: var(--gray-600); margin-bottom: 20px; line-height: 1.7; }
 
+/* ── Demo Mode ── */
+.demo-banner {
+  display: none; text-align: center; font-size: 11px; font-weight: 600;
+  letter-spacing: .02em; color: #fff; background: var(--amber-500);
+  padding: 4px 0;
+}
+body.demo-mode .demo-banner { display: block; }
+body.demo-mode header { border-bottom: 2px solid var(--amber-500); }
+
 /* ── Header ── */
 header {
   position: sticky; top: 0; z-index: 100; height: 56px;
@@ -845,6 +854,8 @@ body.touch-dragging .tasks-left {
 </head>
 <body>
 
+<div class="demo-banner">デモモード（サンプルデータを表示中）</div>
+
 <!-- Connect Screen -->
 <div id="connect-screen" style="display:none">
   <div class="connect-logo">Achievia</div>
@@ -853,6 +864,7 @@ body.touch-dragging .tasks-left {
     <h2 id="connect-title">Vaultに接続</h2>
     <p id="connect-desc">ObsidianのVaultフォルダを選択してください。タスクデータはVault内の <code>Achievia/data.json</code> に保存されます。</p>
     <button class="btn btn-primary" id="connect-btn" style="width:100%">フォルダを選択して接続</button>
+    <button class="btn btn-outline" id="btn-try-demo" style="width:100%;margin-top:8px" onclick="onTryDemoClick()">デモモードを試す</button>
   </div>
 </div>
 
@@ -1012,6 +1024,7 @@ const GDRIVE_CLIENT_ID = '908988415825-6h504mcnfj5udoie4vsn5prbqi2btosq.apps.goo
 const Storage = {
   _vaultHandle: null,
   _data: null,
+  _realData: null, // デモモード中、実データを一時退避する領域
 
   _defaultData() {
     return {
@@ -1031,6 +1044,22 @@ const Storage = {
       lastReviewShown: null,
       workHoursPerDay: 8,
     };
+  },
+
+  /* ---- デモモード ---- */
+  enterDemoMode() {
+    this._realData = this._data;
+    this._data = _demoData();
+    demoMode = true;
+    refreshRecurringInstances(); // ここでのみ呼ぶ。OFF時には呼ばない
+  },
+  exitDemoMode() {
+    this._data = this._realData;
+    this._realData = null;
+    demoMode = false;
+    // refreshRecurringInstances() は呼ばない
+    // （demoMode=false後に呼ぶと save() のガードを素通りし、実データに対して
+    //   「未来日インスタンスの削除→再生成」という破壊的書込が発生してしまうため）
   },
 
   /* ---- IndexedDB helpers for handle persistence ---- */
@@ -1120,6 +1149,7 @@ const Storage = {
     }
   },
   async save() {
+    if (demoMode) return; // デモ中はサンプルデータを実ストレージに書き込まない（最優先ガード）
     if (this._mode === 'gdrive') { await this.saveGDrive(); return; }
     if (!this._vaultHandle) return;
     try {
@@ -1164,6 +1194,7 @@ const Storage = {
 
   get data() { return this._data; },
   get connected() {
+    if (demoMode) return !!this._data;
     if (this._mode === 'gdrive') return !!this._gdriveFileId && !!this._data;
     return !!this._vaultHandle && !!this._data;
   },
@@ -1396,6 +1427,227 @@ function tomorrowStr() {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 }
 function pad(n) { return String(n).padStart(2, '0'); }
+
+// ============================================================
+// DEMO DATA — テスト用のサンプルデータ生成
+// 日付はすべて today からの相対オフセットで動的生成する（固定日付は埋め込まない）
+// ============================================================
+function _demoData() {
+  const _offsetStr = (offsetDays) => {
+    const dt = new Date();
+    dt.setDate(dt.getDate() + offsetDays);
+    return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+  };
+  const _isoOffset = (offsetDays) => {
+    const dt = new Date();
+    dt.setDate(dt.getDate() + offsetDays);
+    return dt.toISOString();
+  };
+
+  const projCoral = genId();
+  const projWebsite = genId();
+  const projInternal = genId();
+
+  const projects = [
+    { id: projCoral,    name: 'コーラル新機能',     color: '#3b82f6', createdAt: _isoOffset(-30) },
+    { id: projWebsite,  name: 'コーポレートサイト改修', color: '#8b5cf6', createdAt: _isoOffset(-20) },
+    { id: projInternal, name: '社内ツール整備',     color: '#10b981', createdAt: _isoOffset(-10) },
+  ];
+
+  const tags = [
+    { id: genId(), name: '緊急',     color: '#ef4444' },
+    { id: genId(), name: '要レビュー', color: '#f59e0b' },
+    { id: genId(), name: '個人',     color: '#64748b' },
+  ];
+
+  const wt = { coding: 'coding', design: 'design', meeting: 'meeting', document: 'document', other: 'other' };
+
+  const mk = (overrides) => ({
+    id: genId(),
+    type: 'task',
+    title: '',
+    notes: '',
+    projectId: null,
+    workType: null,
+    estimatedHours: 1,
+    actualHours: null,
+    partialHours: [],
+    startTime: null,
+    endTime: null,
+    deadline: null,
+    status: 'pending',
+    tagIds: [],
+    scheduledDate: null,
+    priority: 'medium',
+    recurring: null,
+    recurringId: null,
+    order: 0,
+    completedAt: null,
+    createdAt: _isoOffset(-1),
+    ...overrides,
+  });
+
+  const tasks = [
+    // 今日：進行中・期限あり
+    mk({
+      title: 'コーラル：検索UIのワイヤーフレーム作成', projectId: projCoral, workType: wt.design,
+      estimatedHours: 3, status: 'in_progress', scheduledDate: _offsetStr(0),
+      deadline: _offsetStr(1), priority: 'high', order: 0,
+    }),
+    // 今日：未着手・時間指定あり
+    mk({
+      title: 'チームミーティング（週次定例）', projectId: projInternal, workType: wt.meeting,
+      estimatedHours: 1, status: 'pending', scheduledDate: _offsetStr(0),
+      startTime: '10:00', endTime: '11:00', priority: 'medium', order: 1,
+    }),
+    // 今日：保留中
+    mk({
+      title: 'デザインレビュー：クライアントからのフィードバック待ち', projectId: projCoral, workType: wt.design,
+      estimatedHours: 1.5, status: 'waiting', scheduledDate: _offsetStr(0),
+      priority: 'medium', order: 2,
+    }),
+    // 今日：完了済み
+    mk({
+      title: 'サイト改修：トップページ画像差し替え', projectId: projWebsite, workType: wt.coding,
+      estimatedHours: 1, actualHours: 0.8, status: 'completed', scheduledDate: _offsetStr(0),
+      completedAt: _isoOffset(0), priority: 'low', order: 3,
+    }),
+    // 明日：締切間近
+    mk({
+      title: 'コーラル：API仕様書のドラフト作成', projectId: projCoral, workType: wt.document,
+      estimatedHours: 2, status: 'pending', scheduledDate: _offsetStr(1),
+      deadline: _offsetStr(2), priority: 'high', tagIds: [tags[1].id], order: 4,
+    }),
+    // 2日後：時間指定あり
+    mk({
+      title: 'クライアント定例ミーティング', projectId: projWebsite, workType: wt.meeting,
+      estimatedHours: 1, status: 'pending', scheduledDate: _offsetStr(2),
+      startTime: '14:00', endTime: '15:00', priority: 'medium', order: 5,
+    }),
+    // 3日後：他workType
+    mk({
+      title: '月次レポートのまとめ', projectId: projInternal, workType: wt.document,
+      estimatedHours: 2, status: 'pending', scheduledDate: _offsetStr(3),
+      priority: 'low', order: 6,
+    }),
+    // 5日後：その他
+    mk({
+      title: '経費精算', projectId: null, workType: wt.other,
+      estimatedHours: 0.5, status: 'pending', scheduledDate: _offsetStr(5),
+      priority: 'low', tagIds: [tags[2].id], order: 7,
+    }),
+    // 期限切れ（過去日・未完了）
+    mk({
+      title: 'サイト改修：問い合わせフォームのバグ修正', projectId: projWebsite, workType: wt.coding,
+      estimatedHours: 2, status: 'in_progress', scheduledDate: _offsetStr(-2),
+      deadline: _offsetStr(-1), priority: 'high', tagIds: [tags[0].id], order: 8,
+    }),
+    // 過去日・完了済み
+    mk({
+      title: 'コーラル：オンボーディングフロー設計', projectId: projCoral, workType: wt.design,
+      estimatedHours: 4, actualHours: 4.5, status: 'completed', scheduledDate: _offsetStr(-3),
+      completedAt: _isoOffset(-3), priority: 'medium', order: 9,
+    }),
+    // 過去日・完了済み（partialHoursの例）
+    mk({
+      title: '社内ツール：ログイン画面の実装', projectId: projInternal, workType: wt.coding,
+      estimatedHours: 6, actualHours: 6, status: 'completed', scheduledDate: _offsetStr(-5),
+      completedAt: _isoOffset(-5), priority: 'medium',
+      partialHours: [{ date: _offsetStr(-6), hours: 3 }, { date: _offsetStr(-5), hours: 3 }],
+      order: 10,
+    }),
+    // 期限なし・いつかやる（scheduledDate: null）
+    mk({
+      title: '新しい技術記事を読む', projectId: null, workType: wt.other,
+      estimatedHours: 1, status: 'pending', scheduledDate: null,
+      priority: 'low', tagIds: [tags[2].id], order: 11,
+    }),
+    mk({
+      title: 'コーラル：通知機能の改善案を考える', projectId: projCoral, workType: wt.other,
+      estimatedHours: 1, status: 'pending', scheduledDate: null,
+      priority: 'medium', order: 12,
+    }),
+    // 来週・将来日付
+    mk({
+      title: 'サイト改修：パフォーマンス計測と改善', projectId: projWebsite, workType: wt.coding,
+      estimatedHours: 3, status: 'pending', scheduledDate: _offsetStr(7),
+      deadline: _offsetStr(9), priority: 'medium', order: 13,
+    }),
+  ];
+
+  // 繰り返しタスクはテンプレートのみ生成。インスタンス展開は enterDemoMode() 内の
+  // refreshRecurringInstances() に完全に委ねる（tasks[] には recurringId 付きインスタンスを含めない）
+  const recurringTemplates = [
+    {
+      id: genId(),
+      title: '日報の記入',
+      notes: '今日の作業内容を簡単にまとめる',
+      projectId: null,
+      workType: wt.other,
+      estimatedHours: 0.5,
+      priority: 'low',
+      recurring: { frequency: 'weekdays', days: [], startDate: null, endDate: null },
+    },
+    {
+      id: genId(),
+      title: '週次定例ミーティング',
+      notes: '',
+      projectId: projInternal,
+      workType: wt.meeting,
+      estimatedHours: 1,
+      priority: 'medium',
+      recurring: { frequency: 'weekly', days: [new Date().getDay()], startDate: null, endDate: null },
+    },
+  ];
+
+  const notes = [
+    {
+      id: genId(), projectId: projCoral, workTypeId: wt.design,
+      content: 'クライアントから「検索結果のソート機能も欲しい」との要望あり。次回MTGで優先度を確認する。',
+      updatedAt: _isoOffset(-1), createdAt: _isoOffset(-1),
+    },
+    {
+      id: genId(), projectId: null, workTypeId: null,
+      content: '来月の振り返りで使うため、今月の作業時間の内訳をメモしておく。',
+      updatedAt: _isoOffset(-2), createdAt: _isoOffset(-2),
+    },
+  ];
+
+  const reviews = [
+    {
+      id: genId(),
+      date: _offsetStr(-1),
+      completedCount: 3,
+      totalCount: 4,
+      actualHours: 5.5,
+      score: 78,
+      scoreLabel: 'いい感じ',
+      predictionAccuracy: 0.92,
+      reviewMemo: '見積もりと実績の差が小さくなってきた。明日は午前中に集中作業を入れる。',
+      skipped: false,
+      createdAt: _isoOffset(-1),
+    },
+  ];
+
+  return {
+    tasks,
+    projects,
+    workTypes: [
+      { id: 'coding',   label: 'コーディング', color: '#3b82f6', showStatus: true },
+      { id: 'design',   label: 'デザイン',     color: '#8b5cf6', showStatus: true },
+      { id: 'meeting',  label: 'ミーティング', color: '#f59e0b', showStatus: false },
+      { id: 'document', label: 'ドキュメント', color: '#6366f1', showStatus: true },
+      { id: 'other',    label: 'その他',       color: '#64748b', showStatus: true },
+    ],
+    notes,
+    tags,
+    recurringTemplates,
+    reviews,
+    lastReviewShown: null,
+    workHoursPerDay: 8,
+  };
+}
+
 function postponeTask(id) {
   const d = D();
   const task = d.tasks.find(x => x.id === id);
@@ -1431,6 +1683,7 @@ function esc(s) {
 // ============================================================
 let viewMode = 'list';
 let activeTab = 'tasks';
+let demoMode = false; // localStorageには保存しない（リロードのたびに必ずfalseから始まる）
 let collapsedSections = {};
 let editingTaskId = null;
 let expandedNoteId = null;
@@ -3212,6 +3465,13 @@ function renderSettings() {
   document.getElementById('settings-data').innerHTML = `
     <h3>データ管理</h3>
     ${gdriveSection}
+    <div style="margin-bottom:14px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--gray-700);cursor:pointer">
+        <input type="checkbox" ${demoMode ? 'checked' : ''} onchange="onToggleDemoMode(this.checked)" style="cursor:pointer">
+        デモモード
+      </label>
+      <div style="font-size:11px;color:var(--gray-400);margin-top:4px;margin-left:24px">ONにするとサンプルデータに切り替わります（実データはOFFに戻すと復元されます。リロードすると自動的にOFFに戻ります）</div>
+    </div>
     <div class="data-stats">
       <div class="stat-item"><div class="stat-num">${d.tasks.length}</div><div class="stat-label">タスク</div></div>
       <div class="stat-item"><div class="stat-num">${d.projects.length}</div><div class="stat-label">プロジェクト</div></div>
@@ -3230,13 +3490,33 @@ function doAddProj() {
   const n = document.getElementById('proj-name')?.value.trim() || '';
   openNewProjectModal(n || undefined);
 }
+function onToggleDemoMode(checked) {
+  if (checked) {
+    Storage.enterDemoMode();
+    document.body.classList.add('demo-mode');
+    render();
+    return;
+  }
+  Storage.exitDemoMode();
+  document.body.classList.remove('demo-mode');
+  if (Storage._data) {
+    render();
+  } else {
+    // 起動画面の「デモモードを試す」から入った場合は実データが存在しないため、接続画面に戻す
+    document.getElementById('app').style.display = 'none';
+    init();
+  }
+}
 function doDisconnectGDrive() {
   if (!confirm('Google Drive との接続を切断します。再接続すると別のファイルを選択できます。')) return;
   Storage.disconnectGDrive();
   location.reload();
 }
 function doDeleteAll() {
-  if (!confirm('全データを削除しますか？この操作は取り消せません。')) return;
+  const message = demoMode
+    ? 'デモ用のサンプルデータを削除しますか？（実データには影響しません）'
+    : '全データを削除しますか？この操作は取り消せません。';
+  if (!confirm(message)) return;
   const d = D(); d.tasks = []; d.projects = []; d.notes = []; d.reviews = []; d.lastReviewShown = null;
   commit();
 }
@@ -5973,7 +6253,7 @@ function setVaultUI(connected) {
   const el = document.getElementById('vault-indicator');
   const lb = document.getElementById('vault-label');
   el.classList.toggle('off', !connected);
-  lb.textContent = connected ? `${Storage.vaultName} 接続済み` : '未接続';
+  lb.textContent = connected ? (Storage.vaultName ? `${Storage.vaultName} 接続済み` : 'デモモード') : '未接続';
 }
 
 // ============================================================
@@ -5999,6 +6279,12 @@ function showApp() {
   document.getElementById('connect-screen').style.display = 'none';
   document.getElementById('app').style.display = '';
   setVaultUI(true); refreshRecurringInstances(); render(); checkReview();
+}
+
+function onTryDemoClick() {
+  Storage.enterDemoMode();
+  document.body.classList.add('demo-mode');
+  showApp();
 }
 
 // ============================================================
