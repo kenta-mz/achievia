@@ -325,9 +325,13 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 }
 .timeline-unscheduled { margin-top: 16px; border-top: 1px solid var(--gray-100); padding-top: 12px; }
 .timeline-unscheduled-title {
+  display: flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--gray-400); margin-bottom: 8px;
   font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em;
+  cursor: pointer; user-select: none; -webkit-user-select: none;
 }
+.timeline-unscheduled-title:hover { color: var(--gray-600); }
+.timeline-unscheduled.collapsed .timeline-unscheduled-title { margin-bottom: 0; }
 .timeline-unsched-task {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px;
@@ -2299,9 +2303,9 @@ function renderTimeline(d) {
   function tlCard(task, style, h) {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
-    const bgColor   = proj ? proj.color + '22' : 'var(--ink)';
-    const textColor = proj ? proj.color        : '#fff';
-    const bdColor   = proj ? proj.color + '55' : 'transparent';
+    const bgColor   = proj ? proj.color + '22' : 'var(--gray-100)';
+    const textColor = proj ? proj.color        : 'var(--gray-600)';
+    const bdColor   = proj ? proj.color + '55' : 'var(--gray-300)';
     const timeLabel = task.startTime
       ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${task.estimatedHours}h`
       : `${task.estimatedHours}h`;
@@ -2327,6 +2331,8 @@ function renderTimeline(d) {
     tlCard(task, `top:${top}px;height:${height}px;left:calc(${lPct}% + 2px);width:calc(${wPct}% - 4px)`, height)
   ).join('');
 
+  const unschedCol = collapsedSections['_tlUnsched'];
+
   const unschedCards = noTime.map(task => {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
@@ -2339,9 +2345,12 @@ function renderTimeline(d) {
 
   return `<div style="padding:12px">
     ${noTime.length ? `
-    <div class="timeline-unscheduled" style="margin-top:0;border-top:none;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:12px;padding-top:0">
-      <div class="timeline-unscheduled-title">時刻未設定 (${noTime.length}件)</div>
-      ${unschedCards}
+    <div class="timeline-unscheduled${unschedCol ? ' collapsed' : ''}" style="margin-top:0;border-top:none;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:12px;padding-top:0">
+      <div class="timeline-unscheduled-title" onclick="toggleSec('_tlUnsched')">
+        <span class="section-toggle ${unschedCol ? 'closed' : ''}">▼</span>
+        <span>時刻未設定 (${noTime.length}件)</span>
+      </div>
+      ${unschedCol ? '' : unschedCards}
     </div>` : ''}
     <div class="timeline-wrap">
       <div class="timeline-grid">
@@ -5495,6 +5504,14 @@ function _onTlPointerCancel(e) {
 function _tlYToRawMinutes(clientY) {
   const grid = document.querySelector('.timeline-grid');
   if (!grid) return NaN;
+  // sticky な時刻未設定エリア（既存 or D&D中の動的生成ゾーン）が
+  // 視覚的にグリッド上に重なっている場合はグリッド外として扱う
+  // （スクロール時に座標が重複し、誤ってグリッドへドロップ判定されてしまうため）
+  const unsched = document.querySelector('.timeline-unscheduled') || document.querySelector('.tl-drop-unsched-zone');
+  if (unsched) {
+    const uRect = unsched.getBoundingClientRect();
+    if (clientY >= uRect.top && clientY <= uRect.bottom) return NaN;
+  }
   const rect = grid.getBoundingClientRect();
   // コンテナ可視範囲外なら NaN を返す（スクロール量に関係なくキャンセル判定に使う）
   if (clientY < rect.top || clientY >= rect.bottom) return NaN;
