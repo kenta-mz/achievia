@@ -6256,14 +6256,15 @@ function attachSomedayDragListeners() {
 }
 
 function _onSomedayPointerDown(e) {
-  // Pointer Events は Touch Events より先に発火する前提のもと、
-  // 機能A（_onTaskTouchStart）との競合を避けるため最初の同期処理でフラグを立てる
-  _somedayPointerActive = true;
-
   if (e.button !== 0 && e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
   const card   = e.currentTarget;
   const taskId = card.dataset.id;
   if (!taskId) return;
+
+  // Pointer Events は Touch Events より先に発火する前提のもと、
+  // 機能A（_onTaskTouchStart）との競合を避けるため、早期returnガードを
+  // すべて通過した後・リスナー登録確定直前の最初の同期処理でフラグを立てる
+  _somedayPointerActive = true;
 
   _somedayDragStartX  = e.clientX;
   _somedayDragStartY  = e.clientY;
