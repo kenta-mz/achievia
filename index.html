@@ -56,12 +56,6 @@ code { font-family: monospace; font-size: 12px; background: var(--gray-100); pad
 .connect-card p { font-size: 12px; color: var(--gray-600); margin-bottom: 20px; line-height: 1.7; }
 
 /* ── Demo Mode ── */
-.demo-banner {
-  display: none; text-align: center; font-size: 11px; font-weight: 600;
-  letter-spacing: .02em; color: #fff; background: var(--amber-500);
-  padding: 4px 0;
-}
-body.demo-mode .demo-banner { display: block; }
 body.demo-mode header { border-bottom: 2px solid var(--amber-500); }
 
 /* ── Header ── */
@@ -79,6 +73,8 @@ header {
 .vault-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green-500); }
 .vault-indicator.off { color: var(--gray-400); }
 .vault-indicator.off .vault-dot { background: var(--gray-400); }
+.vault-indicator.demo { color: var(--amber-500); }
+.vault-indicator.demo .vault-dot { background: var(--amber-500); }
 .header-nav { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .nav-btn {
   display: flex; align-items: center; gap: 5px; padding: 6px 12px;
@@ -853,8 +849,6 @@ body.touch-dragging .tasks-left {
 </style>
 </head>
 <body>
-
-<div class="demo-banner">デモモード（サンプルデータを表示中）</div>
 
 <!-- Connect Screen -->
 <div id="connect-screen" style="display:none">
@@ -3494,12 +3488,14 @@ function onToggleDemoMode(checked) {
   if (checked) {
     Storage.enterDemoMode();
     document.body.classList.add('demo-mode');
+    setVaultUI(true);
     render();
     return;
   }
   Storage.exitDemoMode();
   document.body.classList.remove('demo-mode');
   if (Storage._data) {
+    setVaultUI(Storage.connected);
     render();
   } else {
     // 起動画面の「デモモードを試す」から入った場合は実データが存在しないため、接続画面に戻す
@@ -6252,8 +6248,15 @@ function render() {
 function setVaultUI(connected) {
   const el = document.getElementById('vault-indicator');
   const lb = document.getElementById('vault-label');
+  if (demoMode) {
+    el.classList.remove('off');
+    el.classList.add('demo');
+    lb.textContent = 'DEMO MODE';
+    return;
+  }
+  el.classList.remove('demo');
   el.classList.toggle('off', !connected);
-  lb.textContent = connected ? (Storage.vaultName ? `${Storage.vaultName} 接続済み` : 'デモモード') : '未接続';
+  lb.textContent = connected ? `${Storage.vaultName} 接続済み` : '未接続';
 }
 
 // ============================================================
