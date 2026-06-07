@@ -732,6 +732,11 @@ body.touch-dragging .tasks-left {
   background: rgba(99, 102, 241, 0.08);
   color: rgba(99, 102, 241, 0.9);
 }
+.task-row.someday-dragging-source { opacity: 0.3; pointer-events: none; }
+.someday-section.tl-drop-target {
+  outline: 2px dashed rgba(99, 102, 241, 0.6); outline-offset: 2px;
+  background: rgba(99, 102, 241, 0.08); border-radius: var(--radius);
+}
 
 /* ── Timeline Resize Handle ── */
 .tl-resize-handle {
@@ -2356,9 +2361,11 @@ function taskRow(task, d) {
     ? `<span class="tag" style="background:rgba(99,102,241,.08);color:#6366f1;font-size:10px">${task._slotIdx + 1}/${task._slotTotal}</span>`
     : '';
   const slotIdxParam = isSlot ? task._slotIdx : '';
+  // いつかやる欄のクリックハンドラはドラッグ直後の誤クリックを防ぐガードを付与
+  const _somedayClickGuard = isUnscheduled ? 'if(_somedayRecentDrag)return;' : '';
   // いつかやる欄は予定時間のみ表示・クリックで予定時間のみ編集
   const hoursBadge = isUnscheduled
-    ? `<button class="tag-hours" onclick="openEstModal('${task.id}');event.stopPropagation()">${task.estimatedHours || 0}h</button>`
+    ? `<button class="tag-hours" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">${task.estimatedHours || 0}h</button>`
     : effectiveDone
     ? `<span class="tag-hours" style="cursor:default;color:var(--green-600)">${partialOnDate > 0 ? partialOnDate : slotH}h</span>`
     : partialOnDate > 0
@@ -2384,7 +2391,7 @@ function taskRow(task, d) {
       ondrop="handleDropOnTask(event,'${task.id}','${isSlot ? slotDate : (task.scheduledDate || '')}',${isSlot ? task._slotIdx : -1})">
       <div class="task-card">
         <span class="drag-handle">⋮⋮</span>
-        <button class="task-check${effectiveDone?' done':''}"${(!effectiveDone && proj) ? ` style="border-color:${proj.color}"` : ''} onclick="${isSlot ? `toggleSlotComplete('${task.id}',${task._slotIdx})` : `toggleTask('${task.id}')`}">
+        <button class="task-check${effectiveDone?' done':''}"${(!effectiveDone && proj) ? ` style="border-color:${proj.color}"` : ''} onclick="${_somedayClickGuard}${isSlot ? `toggleSlotComplete('${task.id}',${task._slotIdx})` : `toggleTask('${task.id}')`}">
           <svg viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><path d="M2 5l2.5 2.5L8 3"/></svg>
         </button>
         <div class="task-title-wrap">
@@ -2398,9 +2405,9 @@ function taskRow(task, d) {
                  oninput="_cacheEdit('${task.id}','notes',this.value)"
                  onkeydown="handleMemoEditKey(event,'${task.id}')"
                  onclick="event.stopPropagation()">${esc(task.notes||'')}</textarea>`
-            : `<div class="task-title${effectiveDone?' done':''}" onclick="startEdit('${task.id}')">${esc(task.title)}</div>
+            : `<div class="task-title${effectiveDone?' done':''}" onclick="${_somedayClickGuard}startEdit('${task.id}')">${esc(task.title)}</div>
                ${task.notes
-                 ? `<div class="task-memo-preview" onclick="startEdit('${task.id}')">${esc(task.notes.split('\n')[0])}</div>`
+                 ? `<div class="task-memo-preview" onclick="${_somedayClickGuard}startEdit('${task.id}')">${esc(task.notes.split('\n')[0])}</div>`
                  : ''}`}
         </div>
         <div class="task-tags">
@@ -2825,6 +2832,7 @@ function renderNotes() {
   }
   _renderNoteChips();
   _renderSomedayChips();
+  attachSomedayDragListeners();
 }
 
 function expandNote(id) {
@@ -5438,6 +5446,7 @@ function attachTouchDragListeners() {
 }
 
 function _onTaskTouchStart(e) {
+  if (_somedayPointerActive) return;
   if (e.touches.length !== 1) return;
   const row   = e.currentTarget;
   const touch = e.touches[0];
@@ -5728,11 +5737,19 @@ function _onTlPointerMove(e) {
       _tlSnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
     }
   }
-  // ドロップゾーンのハイライト更新
-  if (_tlDropUnschedZone) {
-    const zRect = _tlDropUnschedZone.getBoundingClientRect();
-    _tlDropUnschedZone.classList.toggle('active',
-      e.clientY >= zRect.top && e.clientY <= zRect.bottom);
+  // ドロップ先ハイライト更新：「いつかやる」セクションを最優先（elementFromPoint で先行判定）。
+  // 既存の時刻未設定ゾーンハイライトとは排他にする（同時に2つハイライトしない）
+  const somedaySectionEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.someday-section') || null;
+  if (somedaySectionEl) {
+    somedaySectionEl.classList.add('tl-drop-target');
+    if (_tlDropUnschedZone) _tlDropUnschedZone.classList.remove('active');
+  } else {
+    document.querySelectorAll('.someday-section.tl-drop-target').forEach(el => el.classList.remove('tl-drop-target'));
+    if (_tlDropUnschedZone) {
+      const zRect = _tlDropUnschedZone.getBoundingClientRect();
+      _tlDropUnschedZone.classList.toggle('active',
+        e.clientY >= zRect.top && e.clientY <= zRect.bottom);
+    }
   }
 }
 
@@ -5740,6 +5757,23 @@ function _onTlPointerUp(e) {
   clearTimeout(_tlDragTimer);
   if (!_tlDragging) { _cleanupTlDrag(e.currentTarget); return; }
   _tlRecentDrag = true; setTimeout(() => { _tlRecentDrag = false; }, 400);
+
+  // 最優先：「いつかやる」セクション上にドロップされたか先行判定（elementFromPoint）。
+  // _tlYToRawMinutes はグリッド内とみなせる座標を返してしまうため、
+  // グリッド内判定より前に行わないと「いつかやるへドロップ」が再スケジュールに化けてしまう
+  const somedaySectionEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.someday-section') || null;
+  if (somedaySectionEl) {
+    const d    = D();
+    const task = d.tasks.find(x => x.id === _tlDragTaskId);
+    if (task) {
+      task.scheduledDate = null;
+      task.startTime     = null;
+      task.endTime       = null;
+    }
+    _cleanupTlDrag(e.currentTarget);
+    if (task) commit();
+    return;
+  }
 
   const snapM = _tlYToSnapMinutes(e.clientY - _tlDragGrabOffsetY);
   if (!isNaN(snapM)) {
@@ -5817,6 +5851,7 @@ function _cleanupTlDrag(card) {
     }
     _tlDropUnschedZone = null;
   }
+  document.querySelectorAll('.someday-section.tl-drop-target').forEach(el => el.classList.remove('tl-drop-target'));
   if (_tlDragGhost)     { _tlDragGhost.remove();     _tlDragGhost     = null; }
   if (_tlSnapIndicator) { _tlSnapIndicator.remove();  _tlSnapIndicator = null; }
   if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
@@ -6191,6 +6226,198 @@ function _cleanupUnschedDrag(card) {
   _tlDragOrigStartM = 0; _tlDragOrigEndM = 0; _tlPointerType = ''; _tlDragGrabOffsetY = 0;
 }
 
+// ============================================================
+// SOMEDAY → TIMELINE POINTER D&D（機能2・新規）
+// ============================================================
+
+// ── Someday drag state ───────────────────────────────────────
+let _somedayDragTaskId    = null;
+let _somedayDragging      = false;
+let _somedayDragGhost     = null;
+let _somedayDragSource    = null;
+let _somedayDragStartX    = 0;
+let _somedayDragStartY    = 0;
+let _somedayPointerType   = '';
+let _somedayDragTimer     = null;
+let _somedayRecentDrag    = false;
+let _somedaySnapIndicator = null;
+let _somedayDragDurM      = 0;
+// 機能Aタッチブリッジ（_onTaskTouchStart）との競合回避フラグ。
+// Pointer Events は仕様上 Touch Events より先に発火するため、
+// _onSomedayPointerDown の最初の同期処理でセットすれば _onTaskTouchStart 側で参照可能
+let _somedayPointerActive = false;
+
+function attachSomedayDragListeners() {
+  document.querySelectorAll('.someday-task-list .task-row[data-id]').forEach(row => {
+    if (row._somedayBound) return;
+    row._somedayBound = true;
+    row.addEventListener('pointerdown', _onSomedayPointerDown, { passive: false });
+  });
+}
+
+function _onSomedayPointerDown(e) {
+  // Pointer Events は Touch Events より先に発火する前提のもと、
+  // 機能A（_onTaskTouchStart）との競合を避けるため最初の同期処理でフラグを立てる
+  _somedayPointerActive = true;
+
+  if (e.button !== 0 && e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+  const card   = e.currentTarget;
+  const taskId = card.dataset.id;
+  if (!taskId) return;
+
+  _somedayDragStartX  = e.clientX;
+  _somedayDragStartY  = e.clientY;
+  _somedayDragging    = false;
+  _somedayPointerType = e.pointerType;
+
+  if (e.pointerType !== 'mouse') {
+    // touch/pen: 長押し300ms後にドラッグ開始（機能D・機能Aと同じ方式）
+    _somedayDragTimer = setTimeout(() => { _doStartSomedayDrag(e, card, taskId); }, TL_DRAG_DELAY);
+  }
+  // mouse: _onSomedayPointerMove での移動量閾値判定でドラッグ開始（setTimeout(fn,0)は使わない）
+
+  card.addEventListener('pointermove',   _onSomedayPointerMove,   { passive: false });
+  card.addEventListener('pointerup',     _onSomedayPointerUp);
+  card.addEventListener('pointercancel', _onSomedayPointerCancel);
+}
+
+function _doStartSomedayDrag(ev, card, taskId) {
+  if (viewMode !== 'timeline') return;
+  if (_somedayDragging || _somedayDragGhost) return; // guard: prevent double ghost
+  const d    = D();
+  const task = d.tasks.find(x => x.id === taskId);
+  if (!task) return;
+
+  // B1ルール：setPointerCapture を最初に呼ぶ。失敗時は早期return
+  try { card.setPointerCapture(ev.pointerId); } catch (err) { return; }
+
+  // ネイティブ HTML5 D&D の dragstart 発火を明示的に防ぐ（setPointerCapture だけでは
+  // ブラウザ依存のリスクがあるため draggable=false で確実に抑止。cleanup で true に戻す）
+  card.draggable = false;
+  // CSS恒久付与ではなく動的付与：機能A（長押し前は通常スクロール可能）の前提を壊さない
+  card.style.touchAction = 'none';
+
+  _somedayDragging   = true;
+  _somedayDragTaskId = taskId;
+  _somedayDragDurM   = Math.round((task.estimatedHours || 1) * 60);
+
+  _somedayDragSource = card;
+  card.classList.add('someday-dragging-source');
+
+  _somedayDragGhost = document.createElement('div');
+  _somedayDragGhost.className = 'tl-drag-ghost';
+  _somedayDragGhost.textContent = task.title;
+  _somedayDragGhost.style.left = (ev.clientX + 8) + 'px';
+  _somedayDragGhost.style.top  = (ev.clientY - 10) + 'px';
+  document.body.appendChild(_somedayDragGhost);
+
+  _somedaySnapIndicator = document.createElement('div');
+  _somedaySnapIndicator.className = 'tl-snap-indicator';
+  const grid = document.querySelector('.timeline-grid');
+  if (grid) grid.appendChild(_somedaySnapIndicator);
+
+  document.body.classList.add('touch-dragging');
+  if (navigator.vibrate) navigator.vibrate(30);
+}
+
+function _onSomedayPointerMove(e) {
+  if (!_somedayDragging) {
+    if (_somedayPointerType === 'mouse') {
+      // mouse: 移動量閾値（機能D・機能Bと同じ）
+      if (Math.abs(e.clientX - _somedayDragStartX) > 3 || Math.abs(e.clientY - _somedayDragStartY) > 3) {
+        _doStartSomedayDrag(e, e.currentTarget, e.currentTarget.dataset.id);
+      }
+    } else if (Math.abs(e.clientX - _somedayDragStartX) > 8 || Math.abs(e.clientY - _somedayDragStartY) > 8) {
+      clearTimeout(_somedayDragTimer); _somedayDragTimer = null;
+    }
+    return;
+  }
+  e.preventDefault();
+
+  if (_somedayDragGhost) {
+    _somedayDragGhost.style.left = (e.clientX + 8) + 'px';
+    _somedayDragGhost.style.top  = (e.clientY - 10) + 'px';
+  }
+
+  const gridEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.timeline-grid') || null;
+  if (_somedaySnapIndicator) {
+    if (gridEl) {
+      const rawM   = _tlYToRawMinutes(e.clientY);
+      const inGrid = !isNaN(rawM) && rawM >= TL_START_M && rawM < TL_END_M;
+      _somedaySnapIndicator.style.display = inGrid ? 'block' : 'none';
+      if (inGrid) {
+        const snapM = Math.round(rawM / 15) * 15;
+        _somedaySnapIndicator.style.top = ((snapM - TL_START_M) / 60 * TL_PX) + 'px';
+      }
+    } else {
+      _somedaySnapIndicator.style.display = 'none';
+    }
+  }
+}
+
+function _onSomedayPointerUp(e) {
+  clearTimeout(_somedayDragTimer);
+  if (!_somedayDragging) { _cleanupSomedayDrag(e.currentTarget); return; }
+  _somedayRecentDrag = true; setTimeout(() => { _somedayRecentDrag = false; }, 400);
+
+  const gridEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.timeline-grid') || null;
+  const rawM   = gridEl ? _tlYToRawMinutes(e.clientY) : NaN;
+
+  if (gridEl && !isNaN(rawM) && rawM >= TL_START_M && rawM < TL_END_M) {
+    const snapM        = Math.round(rawM / 15) * 15;
+    const durM         = _somedayDragDurM;
+    const clampedStart = Math.max(TL_START_M, Math.min(TL_END_M - durM, snapM));
+    const clampedEnd   = clampedStart + durM;
+    const toHHMM = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const d    = D();
+    const task = d.tasks.find(x => x.id === _somedayDragTaskId);
+    if (task) {
+      task.scheduledDate = todayStr();
+      task.startTime     = toHHMM(clampedStart);
+      task.endTime       = toHHMM(clampedEnd);
+    }
+    // cleanup → commit の順序厳守
+    _cleanupSomedayDrag(e.currentTarget);
+    if (task) commit();
+    return;
+  }
+  // グリッド外・範囲外ドロップ → 何も変更せずクリーンアップのみ
+  _cleanupSomedayDrag(e.currentTarget);
+}
+
+function _onSomedayPointerCancel(e) {
+  clearTimeout(_somedayDragTimer);
+  _cleanupSomedayDrag(e.currentTarget);
+}
+
+function _cleanupSomedayDrag(card) {
+  if (_somedayDragGhost)     { _somedayDragGhost.remove();     _somedayDragGhost     = null; }
+  if (_somedaySnapIndicator) { _somedaySnapIndicator.remove(); _somedaySnapIndicator = null; }
+  if (_somedayDragSource) {
+    _somedayDragSource.classList.remove('someday-dragging-source');
+    _somedayDragSource.draggable = true;
+    _somedayDragSource.style.touchAction = '';
+    _somedayDragSource = null;
+  }
+  document.body.classList.remove('touch-dragging');
+  if (card) {
+    // pointerdown は削除しない（B2ルール）：キャンセル後も再ドラッグできるよう保持
+    card.removeEventListener('pointermove',   _onSomedayPointerMove);
+    card.removeEventListener('pointerup',     _onSomedayPointerUp);
+    card.removeEventListener('pointercancel', _onSomedayPointerCancel);
+    card.draggable = true;
+    card.style.touchAction = '';
+  }
+  _somedayDragTaskId  = null;
+  _somedayDragging    = false;
+  _somedayDragTimer   = null;
+  _somedayDragStartX  = 0;
+  _somedayDragStartY  = 0;
+  _somedayPointerType = '';
+  _somedayDragDurM    = 0;
+  _somedayPointerActive = false;
+}
+
 // ── グローバル D&D セーフティネット ──────────────────────────────────
 // pointerup/cancel がカード要素のリスナーに届かなかった場合のフォールバック。
 // バブル順：カードリスナー先行 → window は後 なので、
@@ -6206,12 +6433,28 @@ function _tlGlobalPointerEnd() {
       }
       _tlDropUnschedZone = null;
     }
+    document.querySelectorAll('.someday-section.tl-drop-target').forEach(el => el.classList.remove('tl-drop-target'));
     if (_tlDragGhost)     { _tlDragGhost.remove();     _tlDragGhost     = null; }
     if (_tlSnapIndicator) { _tlSnapIndicator.remove();  _tlSnapIndicator = null; }
     if (_tlDragSource)    { _tlDragSource.classList.remove('tl-dragging-source'); _tlDragSource = null; }
     document.body.classList.remove('touch-dragging');
     _tlDragTaskId = null; _tlDragging = false; _tlDragTimer = null;
     _tlDragOrigStartM = 0; _tlDragOrigEndM = 0; _tlPointerType = ''; _tlDragGrabOffsetY = 0;
+  }
+  if (_somedayDragging || _somedayDragGhost) {
+    document.querySelectorAll('.someday-section.tl-drop-target').forEach(el => el.classList.remove('tl-drop-target'));
+    if (_somedayDragGhost)      { _somedayDragGhost.remove();      _somedayDragGhost      = null; }
+    if (_somedaySnapIndicator)  { _somedaySnapIndicator.remove();  _somedaySnapIndicator  = null; }
+    if (_somedayDragSource) {
+      _somedayDragSource.classList.remove('someday-dragging-source');
+      _somedayDragSource.draggable = true;
+      _somedayDragSource.style.touchAction = '';
+      _somedayDragSource = null;
+    }
+    document.body.classList.remove('touch-dragging');
+    _somedayDragTaskId = null; _somedayDragging = false; _somedayDragTimer = null;
+    _somedayDragStartX = 0; _somedayDragStartY = 0; _somedayPointerType = ''; _somedayDragDurM = 0;
+    _somedayPointerActive = false;
   }
   if (_tlResizing) {
     if (_tlResizeCard) _tlResizeCard.classList.remove('tl-resizing');
