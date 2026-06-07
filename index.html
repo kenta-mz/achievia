@@ -737,9 +737,8 @@ body.touch-dragging .tasks-left {
 }
 .tl-resize-handle::after {
   content: ''; width: 24px; height: 3px;
-  background: rgba(255,255,255,0.5); border-radius: 2px;
+  background: var(--tl-handle-color, rgba(255,255,255,0.5)); border-radius: 2px;
 }
-.timeline-task:hover .tl-resize-handle::after { background: rgba(255,255,255,0.8); }
 .timeline-task.tl-resizing { transition: none; opacity: 0.85; }
 
 /* ── Timeline Top-Resize Handle (機能F) ── */
@@ -758,11 +757,8 @@ body.touch-dragging .tasks-left {
   content: '';
   width: 24px;
   height: 3px;
-  background: rgba(255,255,255,0.5);
+  background: var(--tl-handle-color, rgba(255,255,255,0.5));
   border-radius: 2px;
-}
-.timeline-task:hover .tl-resize-top-handle::after {
-  background: rgba(255,255,255,0.8);
 }
 .timeline-task.tl-top-resizing {
   transition: none;
@@ -2300,12 +2296,23 @@ function renderTimeline(d) {
 
   const hours = Array.from({ length: TL_END - TL_START }, (_, i) => i + TL_START);
 
+  // プロジェクト色を白と混ぜて不透明なパステル色を作る
+  // （アルファ透過だとグリッド線がカードを通して見えてしまうため）
+  function _tlPastelize(hex, ratio) {
+    const h = (hex || '').replace('#', '');
+    if (h.length !== 6) return hex;
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    const mix = c => Math.round(255 * ratio + c * (1 - ratio));
+    const toHex = n => n.toString(16).padStart(2, '0');
+    return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
+  }
+
   function tlCard(task, style, h) {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
-    const bgColor   = proj ? proj.color + '33' : 'var(--gray-200)';
+    const bgColor   = proj ? _tlPastelize(proj.color, 0.78) : 'var(--gray-200)';
     const textColor = proj ? proj.color        : 'var(--gray-700)';
-    const bdColor   = proj ? proj.color + '70' : 'var(--gray-400)';
+    const bdColor   = proj ? _tlPastelize(proj.color, 0.4)  : 'var(--gray-400)';
     const timeLabel = task.startTime
       ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${task.estimatedHours}h`
       : `${task.estimatedHours}h`;
@@ -2317,7 +2324,7 @@ function renderTimeline(d) {
       : '';
     const timeLine = `<div style="font-size:10px;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${timeLabel}</div>`;
     return `<div class="timeline-task${done ? ' done' : ''}" data-id="${task.id}"
-      style="${style};padding:${pad};background:${bgColor};color:${textColor};border:1.5px solid ${bdColor}"
+      style="${style};padding:${pad};background:${bgColor};color:${textColor};border:1.5px solid ${bdColor};--tl-handle-color:${bdColor}"
       onclick="_onTlTaskClick(event,'${task.id}')">
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
