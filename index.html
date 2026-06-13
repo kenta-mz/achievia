@@ -1680,6 +1680,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
+console.log('[Achievia DEBUG v5]', new Date().toISOString()); // 診断用：確認後に削除する
 let viewMode = 'list';
 let activeTab = 'tasks';
 let demoMode = false; // localStorageには保存しない（リロードのたびに必ずfalseから始まる）
@@ -2382,9 +2383,22 @@ function taskRow(task, d) {
         : '')
     : '';
 
+  // レース対策：timelineビューでは機能2（Pointer-based D&D）が「いつかやる」カードの
+  // 主たるD&D経路。draggable属性をレンダリング時点（=ブラウザがこの要素を
+  // ドラッグ候補として認識する一番最初のタイミング）で false にしておくことで、
+  // ネイティブ dragstart 自体を発火不能にし、機能2との競合（.someday-section に
+  // .drag-target/.drag-over-zone の緑破線が居座りドロップ不能になる現象）を根絶する。
+  // pointerdown時や dragstart時に動的に draggable をfalseへトグルする方式は、
+  // 「いつかやる」リストが render()/renderNotes() のたびに innerHTML で作り直される
+  // ため、ドラッグ開始までの間に再描画が挟まると新DOMノードには反映されず
+  // 「間欠的にNG」になることを実機検証で確認済み（render時点で決定するこの方式なら
+  // 常に最新のDOMノードに反映されるため再描画タイミングに左右されない）。
+  // timeline以外のビューでは「いつかやる→カレンダーへドロップして日付設定」が
+  // ネイティブD&D側の正規の経路のため対象外（_doStartSomedayDrag の viewMode
+  // ガードと同じ判断基準）。
   return `
     <div class="task-row${editing?' editing':''}" data-id="${task.id}" data-task-id="${task.id}" data-task-date="${isSlot ? slotDate : (task.scheduledDate || '')}" data-slot-idx="${isSlot ? task._slotIdx : -1}"
-      draggable="${editing?'false':'true'}"
+      draggable="${(editing || viewMode === 'timeline')?'false':'true'}"
       ondragstart="handleDragStart(event,'${task.id}','${isSlot?slotDate:''}',${isSlot?task._slotIdx:''})"
       ondragend="handleDragEnd(event)"
       ondragover="handleDragOver(event)"
@@ -4025,6 +4039,26 @@ window.demoOpenReview = () => {
 // DRAG & DROP
 // ============================================================
 function handleDragStart(e, taskId, slotDate, slotIdx) {
+  console.log('[DEBUG dragstart]', 'viewMode=', viewMode, 'taskId=', taskId, 'closest=', e.currentTarget?.closest?.('.someday-section'));
+  // レース対策：「いつかやる」カード（.someday-section 内の .task-row）は
+  // renderItems由来でネイティブHTML5 D&D属性（draggable/ondragstart等）も
+  // 併せ持つ。timelineビューでは機能2（Pointer-based D&D）が主経路だが、
+  // ネイティブD&Dが先に起動すると .someday-section に .drag-target（緑破線）が
+  // 居座ったままドロップ不能になる（実機確認済み）。
+  // ※ pointerdown時点でcard.draggable=falseにする／dragstartにリスナーを
+  //   addEventListenerする等、要素単位での抑止は再描画(render/renderNotes)が
+  //   ドラッグ開始までの間に挟まると古いDOMノードにしか効かず「間欠的にNG」と
+  //   なることを実機確認済み（.task-rowはinnerHTMLで毎回作り直されるため）。
+  // → 再描画に左右されない関数本体（inline属性は再描画毎に新ノードへ
+  //   再アタッチされる）でガードするのが唯一確実。
+  // timeline以外のビューでは「いつかやる→カレンダーへドロップして日付設定」が
+  // ネイティブD&D側の正規の経路のため対象外とする
+  // （_doStartSomedayDrag 側の viewMode ガードと同じ判断基準）。
+  if (viewMode === 'timeline' && e.currentTarget.closest('.someday-section')) {
+    e.preventDefault();
+    clearDragIndicators(); // dragend が発火しない場合のグリーン破線残存を防ぐ
+    return;
+  }
   dragTaskId = taskId;
   dragSlotDate = slotDate || null;
   dragSlotIdx = (slotIdx !== undefined && slotIdx !== '') ? Number(slotIdx) : -1;
@@ -4068,6 +4102,10 @@ function handleDragOver(e) {
   } else {
     // タスクのない空セクション・セクション余白へのホバー
     // task-row のガイド線インジケーターはそのまま保持し、zone ハイライトのみ更新
+    // dragTaskId が未設定の場合（handleDragStart ガードによる early-return 後の
+    // 迷子 dragover イベント、外部ファイルの dragover 等）は何もしない。
+    // これにより「いつかやる→タイムライン」操作時の緑破線残存を防ぐ。
+    if (!dragTaskId) return;
     document.querySelectorAll('.drag-over-zone').forEach(el => el.classList.remove('drag-over-zone'));
     e.currentTarget.classList.add('drag-over-zone');
     // _lastDragTaskId / _lastDragTaskDate は保持（task-row hover のみが更新する）
@@ -6305,6 +6343,15 @@ function _onSomedayPointerDown(e) {
   // すべて通過した後・リスナー登録確定直前の最初の同期処理でフラグを立てる
   _somedayPointerActive = true;
 
+  // レース対策は handleDragStart 側（関数本体の先頭）で一元的に行う。
+  // 理由：.task-row は renderItems により毎回 innerHTML で再生成されるため、
+  // ここで card に addEventListener('dragstart',...) や card.draggable=false を
+  // 行っても、再描画（render/renderNotes）がドラッグ開始までの間に走ると
+  // 古いDOMノードに対してのみ効いた状態になり、新ノードでは無防備になる
+  // （「OKの時とNGの時がある」という間欠的な再現として実機確認済み）。
+  // inline属性 ondragstart="handleDragStart(...)" は再描画のたびに新ノードへ
+  // 必ず再アタッチされるため、関数本体でガードするのが再描画に強い唯一の方法。
+
   _somedayDragStartX  = e.clientX;
   _somedayDragStartY  = e.clientY;
   _somedayDragging    = false;
@@ -6331,8 +6378,14 @@ function _doStartSomedayDrag(ev, card, taskId) {
   // B1ルール：setPointerCapture を最初に呼ぶ。失敗時は早期return
   try { card.setPointerCapture(ev.pointerId); } catch (err) { return; }
 
-  // ネイティブ HTML5 D&D の dragstart 発火を明示的に防ぐ（setPointerCapture だけでは
-  // ブラウザ依存のリスクがあるため draggable=false で確実に抑止。cleanup で true に戻す）
+  // 直前の dragstart ガード（handleDragStart）が e.preventDefault() でネイティブD&Dを
+  // キャンセルしても、ブラウザのタイミングによっては dragover が1回だけ先行発火し
+  // .drag-over-zone（緑破線）が残存することがある。機能2ドラッグ開始時点で一括クリア。
+  clearDragIndicators();
+
+  // ネイティブHTML5 D&Dの抑止は taskRow テンプレート側（renderItems、render時点で
+  // viewMode==='timeline' なら draggable="false" を出力）が主担当。ここでの代入は
+  // 念のための保険（idempotent）として残す。
   card.draggable = false;
   // CSS恒久付与ではなく動的付与：機能A（長押し前は通常スクロール可能）の前提を壊さない
   card.style.touchAction = 'none';
@@ -6490,7 +6543,9 @@ function _cleanupSomedayDrag(card) {
   if (_somedaySnapIndicator) { _somedaySnapIndicator.remove(); _somedaySnapIndicator = null; }
   if (_somedayDragSource) {
     _somedayDragSource.classList.remove('someday-dragging-source');
-    _somedayDragSource.draggable = true;
+    // timelineビューのままなら draggable=false を維持する（true に戻すとレンダリング
+    // を挟まずに再ドラッグした際、再びネイティブD&Dが起動できてしまいレースが復活する）
+    _somedayDragSource.draggable = (viewMode !== 'timeline');
     _somedayDragSource.style.touchAction = '';
     _somedayDragSource = null;
   }
@@ -6500,7 +6555,7 @@ function _cleanupSomedayDrag(card) {
     card.removeEventListener('pointermove',   _onSomedayPointerMove);
     card.removeEventListener('pointerup',     _onSomedayPointerUp);
     card.removeEventListener('pointercancel', _onSomedayPointerCancel);
-    card.draggable = true;
+    card.draggable = (viewMode !== 'timeline');
     card.style.touchAction = '';
   }
   _somedayDragTaskId  = null;
@@ -6550,7 +6605,8 @@ function _tlGlobalPointerEnd() {
     if (_somedaySnapIndicator)  { _somedaySnapIndicator.remove();  _somedaySnapIndicator  = null; }
     if (_somedayDragSource) {
       _somedayDragSource.classList.remove('someday-dragging-source');
-      _somedayDragSource.draggable = true;
+      // _cleanupSomedayDrag と同じ理由で viewMode に応じて復元する
+      _somedayDragSource.draggable = (viewMode !== 'timeline');
       _somedayDragSource.style.touchAction = '';
       _somedayDragSource = null;
     }
