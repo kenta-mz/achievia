@@ -6247,6 +6247,7 @@ function _onUnschedPointerUp(e) {
   if (somedaySectionEl) {
     const d    = D();
     const task = d.tasks.find(x => x.id === _tlDragTaskId);
+    if (task && task.status === 'completed') { _cleanupUnschedDrag(e.currentTarget); return; }
     if (task) {
       task.scheduledDate = null;
       task.startTime     = null;
