@@ -1680,7 +1680,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-13-r3'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-13-r4'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let activeTab = 'tasks';
 let demoMode = false; // localStorageには保存しない（リロードのたびに必ずfalseから始まる）
@@ -2405,9 +2405,9 @@ function taskRow(task, d) {
       ondrop="handleDropOnTask(event,'${task.id}','${isSlot ? slotDate : (task.scheduledDate || '')}',${isSlot ? task._slotIdx : -1})">
       <div class="task-card">
         <span class="drag-handle">⋮⋮</span>
-        <button class="task-check${effectiveDone?' done':''}"${(!effectiveDone && proj) ? ` style="border-color:${proj.color}"` : ''} onclick="${_somedayClickGuard}${isSlot ? `toggleSlotComplete('${task.id}',${task._slotIdx})` : `toggleTask('${task.id}')`}">
+        ${isUnscheduled ? '' : `<button class="task-check${effectiveDone?' done':''}"${(!effectiveDone && proj) ? ` style="border-color:${proj.color}"` : ''} onclick="${_somedayClickGuard}${isSlot ? `toggleSlotComplete('${task.id}',${task._slotIdx})` : `toggleTask('${task.id}')`}">
           <svg viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><path d="M2 5l2.5 2.5L8 3"/></svg>
-        </button>
+        </button>`}
         <div class="task-title-wrap">
           ${editing
             ? `<input type="text" class="task-title-input" data-edit="${task.id}" value="${esc(task.title)}"
@@ -4140,6 +4140,7 @@ function handleDropOnTask(e, targetTaskId, dateStr, targetSlotIdx) {
   const d = D();
   const drag = d.tasks.find(x => x.id === dragTaskId);
   if (!drag) return;
+  if (date === null && drag.status === 'completed') return;
   let movedEntry = null;
   if (dragSlotDate && date) {
     movedEntry = (drag.estimatedHoursByDate || []).find(e2 => e2.date === dragSlotDate);
@@ -4169,6 +4170,7 @@ function handleDropOnSection(e, dateStr) {
   const d = D();
   const drag = d.tasks.find(x => x.id === dragTaskId);
   if (!drag) return;
+  if (date === null && drag.status === 'completed') return;
   let movedEntry = null;
   if (dragSlotDate && date) {
     movedEntry = (drag.estimatedHoursByDate || []).find(e2 => e2.date === dragSlotDate);
@@ -5801,6 +5803,7 @@ function _onTlPointerUp(e) {
   if (somedaySectionEl) {
     const d    = D();
     const task = d.tasks.find(x => x.id === _tlDragTaskId);
+    if (task && task.status === 'completed') { _cleanupTlDrag(e.currentTarget); return; }
     if (task) {
       task.scheduledDate = null;
       task.startTime     = null;
