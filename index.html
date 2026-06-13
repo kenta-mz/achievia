@@ -1680,7 +1680,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-13-r2'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-13-r3'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let activeTab = 'tasks';
 let demoMode = false; // localStorageには保存しない（リロードのたびに必ずfalseから始まる）
@@ -4083,6 +4083,9 @@ function clearDragIndicators() {
   document.querySelectorAll('.drag-target').forEach(el => el.classList.remove('drag-target'));
 }
 function handleDragOver(e) {
+  // タスクD&D以外（Noteドラッグ・外部ファイル等）はガイド線・ゾーンハイライト不要。
+  // e.preventDefault() より先に返すことで「ドロップ可」カーソルも出さない。
+  if (!dragTaskId) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
   const isTaskEl = e.currentTarget.classList.contains('task-row') ||
@@ -4101,10 +4104,6 @@ function handleDragOver(e) {
   } else {
     // タスクのない空セクション・セクション余白へのホバー
     // task-row のガイド線インジケーターはそのまま保持し、zone ハイライトのみ更新
-    // dragTaskId が未設定の場合（handleDragStart ガードによる early-return 後の
-    // 迷子 dragover イベント、外部ファイルの dragover 等）は何もしない。
-    // これにより「いつかやる→タイムライン」操作時の緑破線残存を防ぐ。
-    if (!dragTaskId) return;
     document.querySelectorAll('.drag-over-zone').forEach(el => el.classList.remove('drag-over-zone'));
     e.currentTarget.classList.add('drag-over-zone');
     // _lastDragTaskId / _lastDragTaskDate は保持（task-row hover のみが更新する）
