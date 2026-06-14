@@ -332,7 +332,16 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
   position: absolute; background: var(--ink); color: #fff;
   border-radius: 6px; padding: 5px 8px; font-size: 12px; overflow: hidden;
   box-sizing: border-box; cursor: pointer; transition: filter .15s;
-  touch-action: none;
+  touch-action: none; z-index: 2;
+}
+.gcal-event {
+  position: absolute; left: 0; right: 0;
+  border-radius: 3px; padding: 2px 6px 2px 8px;
+  pointer-events: none; z-index: 1; overflow: hidden; box-sizing: border-box;
+}
+.gcal-event-title {
+  font-size: 10px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;
 }
 .timeline-task:hover { filter: brightness(1.12); }
 .timeline-task.done { opacity: 0.4; }
@@ -1251,7 +1260,7 @@ const Storage = {
     return new Promise((resolve, reject) => {
       const tc = google.accounts.oauth2.initTokenClient({
         client_id: GDRIVE_CLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/drive',
+        scope: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar.readonly',
         callback: r => r.error ? reject(new Error(r.error)) : resolve(r.access_token),
         error_callback: e => reject(new Error(e.type || 'GIS error')),
       });
@@ -1435,6 +1444,44 @@ const Storage = {
     localStorage.removeItem('achievia_gdrive_file_id');
     localStorage.removeItem('achievia_gdrive_folder_id');
     this._gdriveFileId = null; this._gdriveToken = null; this._data = null;
+  },
+
+  /* Google Calendar API: その日のイベントを全カレンダーから取得 */
+  async fetchCalEvents(date) {
+    if (!this._gdriveToken) return null;
+    const dayStart = new Date(date + 'T00:00:00');
+    const dayEnd   = new Date(date + 'T00:00:00');
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    const timeMin = dayStart.toISOString();
+    const timeMax = dayEnd.toISOString();
+    try {
+      const clRes = await fetch(
+        `https://www.googleapis.com/calendar/v3/users/me/calendarList?fields=items(id,backgroundColor,selected)`,
+        { headers: { Authorization: `Bearer ${this._gdriveToken}` } }
+      );
+      if (!clRes.ok) return null;
+      const clData = await clRes.json();
+      const calendars = (clData.items || []).filter(c => c.selected !== false);
+      const results = await Promise.allSettled(
+        calendars.map(cal =>
+          fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events` +
+            `?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}` +
+            `&singleEvents=true&orderBy=startTime&maxResults=100` +
+            `&fields=items(id,summary,start,end)`,
+            { headers: { Authorization: `Bearer ${this._gdriveToken}` } }
+          )
+          .then(r => r.ok ? r.json() : Promise.reject(r.status))
+          .then(data => (data.items || []).map(ev => ({ ...ev, _calBg: cal.backgroundColor })))
+        )
+      );
+      return results
+        .filter(r => r.status === 'fulfilled')
+        .flatMap(r => r.value)
+        .filter(ev => ev.start?.dateTime); // 終日イベント除外
+    } catch {
+      return null;
+    }
   },
 };
 
@@ -1710,9 +1757,10 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-14-r4'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-14-r5'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
+let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
 let activeTab = 'tasks';
 let demoMode = false; // localStorageには保存しない（リロードのたびに必ずfalseから始まる）
 let collapsedSections = {};
@@ -2169,15 +2217,24 @@ function setView(mode) {
   else document.body.classList.remove('tl-view');
   render();
 }
+async function _loadGCalForDate(date) {
+  if (Array.isArray(_gcalEventsCache[date])) return; // キャッシュ済みならスキップ
+  const events = await Storage.fetchCalEvents(date);
+  if (events === null) return; // 失敗 or 未認証：キャッシュに入れない（次回リトライ可）
+  _gcalEventsCache[date] = events;
+  if (heroAnchorDate === date) render(); // race condition 対策：表示日が変わっていたら再描画しない
+}
 function moveHeroDate(delta) {
   const base = new Date(heroAnchorDate + 'T00:00:00');
   base.setDate(base.getDate() + delta);
   heroAnchorDate = `${base.getFullYear()}-${pad(base.getMonth()+1)}-${pad(base.getDate())}`;
   render();
+  _loadGCalForDate(heroAnchorDate);
 }
 function goHeroToday() {
   heroAnchorDate = todayStr();
   render();
+  _loadGCalForDate(heroAnchorDate);
 }
 
 // ============================================================
@@ -2607,6 +2664,30 @@ function renderTimeline(d) {
 
   const layouts = calcLayout(withTime);
 
+  // GCal イベントブロック（キャッシュから同期取得）
+  const gcalEvents = Array.isArray(_gcalEventsCache[t]) ? _gcalEventsCache[t] : [];
+  function gcalBlock(ev) {
+    const dtStart = new Date(ev.start.dateTime);
+    const dtEnd   = new Date(ev.end.dateTime);
+    // ローカル時刻で分数に変換し、タイムライン範囲内にクリップ
+    let sm = Math.max(dtStart.getHours() * 60 + dtStart.getMinutes(), TL_START * 60);
+    let em = Math.min(dtEnd.getHours()   * 60 + dtEnd.getMinutes(),   TL_END   * 60);
+    if (em <= sm) return '';
+    const top    = (sm - TL_START * 60) / 60 * PX + 2;
+    const height = Math.max((em - sm) / 60 * PX - 2, 18);
+    const color  = ev._calBg || '#4285F4';
+    return `<div class="gcal-event" style="top:${top}px;height:${height}px;background:${color}22;border-left:3px solid ${color};color:${color}">
+      <span class="gcal-event-title">${esc(ev.summary || '(タイトルなし)')}</span>
+    </div>`;
+  }
+  const gcalBlocks = gcalEvents
+    .filter(ev => {
+      const dtS = new Date(ev.start.dateTime), dtE = new Date(ev.end.dateTime);
+      return (dtE.getHours()*60+dtE.getMinutes()) > TL_START*60 &&
+             (dtS.getHours()*60+dtS.getMinutes()) < TL_END*60;
+    })
+    .map(gcalBlock).join('');
+
   // Current time line
   const now = new Date();
   const nowM = now.getHours() * 60 + now.getMinutes();
@@ -2687,6 +2768,7 @@ function renderTimeline(d) {
           return `<div class="tl-hour-line" style="top:${top}px"><span class="tl-hour-label">${h}:00</span></div>${half}`;
         }).join('')}
         ${showNow ? `<div class="timeline-now-line" style="top:${nowTop}px"></div>` : ''}
+        ${gcalBlocks}
         ${gridCards}
       </div>
     </div>
@@ -6756,6 +6838,7 @@ function showApp() {
   document.getElementById('connect-screen').style.display = 'none';
   document.getElementById('app').style.display = '';
   setVaultUI(true); refreshRecurringInstances(); render(); checkReview();
+  _loadGCalForDate(heroAnchorDate); // 今日分をバックグラウンドで先行フェッチ
 }
 
 function onTryDemoClick() {
