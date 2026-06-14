@@ -4100,6 +4100,9 @@ function handleDragOver(e) {
   // タスクD&D以外（Noteドラッグ・外部ファイル等）はガイド線・ゾーンハイライト不要。
   // e.preventDefault() より先に返すことで「ドロップ可」カーソルも出さない。
   if (!dragTaskId) return;
+  // 完了タスクをいつかやるエリアにドラッグ中はガイド線・ゾーンハイライトを出さない
+  { const _drag = D().tasks.find(x => x.id === dragTaskId);
+    if (_drag && _drag.status === 'completed' && e.currentTarget.closest('.someday-section')) return; }
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
   const isTaskEl = e.currentTarget.classList.contains('task-row') ||
@@ -4308,6 +4311,9 @@ function sortSlotsByDate(task) {
 // クロスパネル D&D — 右パネル全体のキャッチオール
 function handleCrossPanelDragOver(e) {
   if (!dragTaskId) return;
+  // 完了タスクはいつかやるにドロップ不可 → ハイライトも出さない
+  { const _drag = D().tasks.find(x => x.id === dragTaskId);
+    if (_drag && _drag.status === 'completed') return; }
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
   // いつかやるセクションをハイライト（タスク行の上でなければ）
@@ -5577,6 +5583,9 @@ function _touchUpdateDropTarget(clientX, clientY) {
 
   const targetRow = el.closest('.task-row, .divider-row');
   if (targetRow) {
+    // 完了タスクをいつかやるへドラッグ中はガイド線を出さない
+    { const _drag = D().tasks.find(x => x.id === dragTaskId);
+      if (_drag && _drag.status === 'completed' && targetRow.closest('.someday-section')) return; }
     const rect = targetRow.getBoundingClientRect();
     dragInsertAfter = clientY > rect.top + rect.height / 2;
     targetRow.classList.add(dragInsertAfter ? 'drag-insert-after' : 'drag-insert-before');
@@ -5793,7 +5802,9 @@ function _onTlPointerMove(e) {
   // 既存の時刻未設定ゾーンハイライトとは排他にする（同時に2つハイライトしない）
   const somedaySectionEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.someday-section') || null;
   if (somedaySectionEl) {
-    somedaySectionEl.classList.add('tl-drop-target');
+    // 完了タスクはいつかやるに移動不可 → ハイライトしない
+    const _tlTask = D().tasks.find(x => x.id === _tlDragTaskId);
+    if (!_tlTask || _tlTask.status !== 'completed') somedaySectionEl.classList.add('tl-drop-target');
     if (_tlDropUnschedZone) _tlDropUnschedZone.classList.remove('active');
   } else {
     document.querySelectorAll('.someday-section.tl-drop-target').forEach(el => el.classList.remove('tl-drop-target'));
@@ -6234,7 +6245,9 @@ function _onUnschedPointerMove(e) {
   // _onTlPointerMove(機能B/E)と全く同じ構造。該当すればグリッド内ガイド線は非表示にする
   const somedaySectionEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.someday-section') || null;
   if (somedaySectionEl) {
-    somedaySectionEl.classList.add('tl-drop-target');
+    // 完了タスクはいつかやるに移動不可 → ハイライトしない
+    const _tlTask = D().tasks.find(x => x.id === _tlDragTaskId);
+    if (!_tlTask || _tlTask.status !== 'completed') somedaySectionEl.classList.add('tl-drop-target');
     if (_tlSnapIndicator) _tlSnapIndicator.style.display = 'none';
   } else {
     document.querySelectorAll('.someday-section.tl-drop-target').forEach(el => el.classList.remove('tl-drop-target'));
