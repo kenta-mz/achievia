@@ -1142,6 +1142,7 @@ const Storage = {
       const text = await (await fh.getFile()).text();
       const parsed = JSON.parse(text);
       this._data = { ...this._defaultData(), ...parsed };
+      this._migrateCompletedSomeDayTasks(this._data);  // ← 追加：tryブロック内
     } catch {
       // data.json が存在しない（初回接続）→ デフォルトデータで初期化
       this._data = this._defaultData();
@@ -1386,7 +1387,18 @@ const Storage = {
     try {
       const parsed = await this._gMedia(this._gdriveFileId);
       this._data = { ...this._defaultData(), ...parsed };
+      this._migrateCompletedSomeDayTasks(this._data);  // ← 追加：tryブロック内
     } catch { this._data = this._defaultData(); }
+  },
+
+  _migrateCompletedSomeDayTasks(data) {
+    if (!Array.isArray(data.tasks)) return data;
+    data.tasks.forEach(task => {
+      if (task.status === 'completed' && task.scheduledDate == null) {
+        task.status = 'pending';
+      }
+    });
+    return data;
   },
 
   async saveGDrive() {
