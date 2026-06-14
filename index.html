@@ -141,6 +141,22 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 /* ── Hero ── */
 .hero-date-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .hero-date { font-size: 17px; font-weight: 700; }
+.hero-date-nav { display: flex; align-items: center; gap: 6px; }
+.hero-date-center { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.hero-nav-btn {
+  border: none; background: transparent; font-size: 18px; font-weight: 400;
+  color: var(--gray-500); cursor: pointer; padding: 2px 6px;
+  border-radius: 5px; line-height: 1; font-family: inherit; transition: .15s;
+}
+.hero-nav-btn:hover { background: var(--gray-100); color: var(--ink); }
+.hero-date--past { color: var(--gray-500); }
+.hero-today-btn {
+  border: 1px solid var(--gray-300); background: transparent;
+  color: var(--gray-600); font-size: 10px; font-weight: 600;
+  cursor: pointer; padding: 1px 7px; border-radius: 100px;
+  font-family: inherit; transition: .15s;
+}
+.hero-today-btn:hover { background: var(--gray-100); }
 .hero-toggle { display: flex; gap: 2px; background: var(--gray-100); border-radius: 7px; padding: 2px; }
 .hero-toggle button {
   border: none; background: transparent; padding: 4px 10px; border-radius: 5px;
@@ -1694,8 +1710,9 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-14-r3'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-14-r4'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
+let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let activeTab = 'tasks';
 let demoMode = false; // localStorageには保存しない（リロードのたびに必ずfalseから始まる）
 let collapsedSections = {};
@@ -2076,7 +2093,9 @@ function switchTab(tab) {
 // RENDER — HERO
 // ============================================================
 function renderHero() {
-  const d = D(); const t = todayStr();
+  const d = D(); const t = heroAnchorDate;
+  const realToday = todayStr();
+  const isToday = t === realToday;
   // 通常タスク（scheduledDate===今日）＋ 複数日タスクで今日がスロットにあるもの
   const todayTasks = d.tasks.filter(x => {
     if (x.type === 'divider') return false;
@@ -2113,13 +2132,20 @@ function renderHero() {
   // partialHoursベース：完了・未完了問わず今日分のpartialHoursを合算
   const doneH  = todayTasks.reduce((s, x) => s + partialToday(x), 0);
   const pct = totalH === 0 ? 0 : Math.round(doneH / totalH * 100);
-  const now = new Date();
-  const wd = ['日','月','火','水','木','金','土'][now.getDay()];
-  const dl = `${now.getMonth()+1}/${now.getDate()}（${wd}）`;
+  const dt = new Date(t + 'T00:00:00');
+  const wd = ['日','月','火','水','木','金','土'][dt.getDay()];
+  const dl = `${dt.getMonth()+1}/${dt.getDate()}（${wd}）`;
 
   document.getElementById('hero-card').innerHTML = `
     <div class="hero-date-row">
-      <h2 class="hero-date">${dl}</h2>
+      <div class="hero-date-nav">
+        <button class="hero-nav-btn" onclick="moveHeroDate(-1)" title="前日">‹</button>
+        <div class="hero-date-center">
+          <h2 class="hero-date${isToday ? '' : ' hero-date--past'}">${dl}</h2>
+          ${isToday ? '' : `<button class="hero-today-btn" onclick="goHeroToday()">今日</button>`}
+        </div>
+        <button class="hero-nav-btn" onclick="moveHeroDate(1)" title="翌日">›</button>
+      </div>
       <div class="hero-toggle">
         <button class="${viewMode==='list'?'active':''}" onclick="setView('list')">リスト</button>
         <button class="${viewMode==='timeline'?'active':''}" onclick="setView('timeline')">タイムライン</button>
@@ -2141,6 +2167,16 @@ function setView(mode) {
   viewMode = mode;
   if (mode === 'timeline') document.body.classList.add('tl-view');
   else document.body.classList.remove('tl-view');
+  render();
+}
+function moveHeroDate(delta) {
+  const base = new Date(heroAnchorDate + 'T00:00:00');
+  base.setDate(base.getDate() + delta);
+  heroAnchorDate = `${base.getFullYear()}-${pad(base.getMonth()+1)}-${pad(base.getDate())}`;
+  render();
+}
+function goHeroToday() {
+  heroAnchorDate = todayStr();
   render();
 }
 
@@ -2522,7 +2558,8 @@ function toggleSec(key) {
 // RENDER — TIMELINE
 // ============================================================
 function renderTimeline(d) {
-  const t = todayStr();
+  const t = heroAnchorDate;
+  const realToday = todayStr();
   const TL_START = 7, TL_END = 23, PX = 75;
   const toM = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 
@@ -2574,7 +2611,7 @@ function renderTimeline(d) {
   const now = new Date();
   const nowM = now.getHours() * 60 + now.getMinutes();
   const nowTop = (nowM - TL_START * 60) / 60 * PX;
-  const showNow = nowM >= TL_START * 60 && nowM <= TL_END * 60;
+  const showNow = t === realToday && nowM >= TL_START * 60 && nowM <= TL_END * 60;
 
   const hours = Array.from({ length: TL_END - TL_START }, (_, i) => i + TL_START);
 
@@ -6525,7 +6562,7 @@ function _onSomedayPointerUp(e) {
     const d    = D();
     const task = d.tasks.find(x => x.id === _somedayDragTaskId);
     if (task) {
-      task.scheduledDate = todayStr();
+      task.scheduledDate = heroAnchorDate;
       task.startTime     = toHHMM(clampedStart);
       task.endTime       = toHHMM(clampedEnd);
     }
@@ -6544,7 +6581,7 @@ function _onSomedayPointerUp(e) {
       const d    = D();
       const task = d.tasks.find(x => x.id === _somedayDragTaskId);
       if (task) {
-        task.scheduledDate = todayStr();
+        task.scheduledDate = heroAnchorDate;
         task.startTime     = null;
         task.endTime       = null;
       }
