@@ -1757,7 +1757,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r1'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r2'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2666,9 +2666,15 @@ function renderTimeline(d) {
 
   // GCal イベントブロック（キャッシュから同期取得）
   const gcalEvents = Array.isArray(_gcalEventsCache[t]) ? _gcalEventsCache[t] : [];
-  // GCalがある日のみ右30%をGCal帯として確保。ない日はタスクが全幅を使う
+  // タイムライン表示範囲（7:00–23:00）内に実際に表示されるイベントだけを対象に分割を判断する
+  const visibleGcalEvents = gcalEvents.filter(ev => {
+    const dtS = new Date(ev.start.dateTime), dtE = new Date(ev.end.dateTime);
+    return (dtE.getHours()*60+dtE.getMinutes()) > TL_START*60 &&
+           (dtS.getHours()*60+dtS.getMinutes()) < TL_END*60;
+  });
+  // 表示対象GCalがある日のみ右30%をGCal帯として確保。ない日はタスクが全幅を使う
   const GCAL_COL_PCT = 30;
-  const taskColPct = gcalEvents.length > 0 ? (100 - GCAL_COL_PCT) : 100;
+  const taskColPct = visibleGcalEvents.length > 0 ? (100 - GCAL_COL_PCT) : 100;
   function gcalBlock(ev) {
     const dtStart = new Date(ev.start.dateTime);
     const dtEnd   = new Date(ev.end.dateTime);
@@ -2683,13 +2689,7 @@ function renderTimeline(d) {
       <span class="gcal-event-title">${esc(ev.summary || '(タイトルなし)')}</span>
     </div>`;
   }
-  const gcalBlocks = gcalEvents
-    .filter(ev => {
-      const dtS = new Date(ev.start.dateTime), dtE = new Date(ev.end.dateTime);
-      return (dtE.getHours()*60+dtE.getMinutes()) > TL_START*60 &&
-             (dtS.getHours()*60+dtS.getMinutes()) < TL_END*60;
-    })
-    .map(gcalBlock).join('');
+  const gcalBlocks = visibleGcalEvents.map(gcalBlock).join('');
 
   // Current time line
   const now = new Date();
