@@ -343,6 +343,22 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
   font-size: 10px; font-weight: 500;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;
 }
+.gcal-import-btn {
+  position: absolute;
+  top: 2px; right: 2px;
+  width: 18px; height: 18px;
+  border: none; border-radius: 50%;
+  background: currentColor; color: white;
+  font-size: 12px; line-height: 1;
+  cursor: pointer; opacity: 0.3; padding: 0;
+  touch-action: manipulation;
+}
+.gcal-import-btn:hover { opacity: 1; }
+@keyframes task-flash {
+  0%, 100% { background: inherit; }
+  50% { background: var(--accent-light, #e8f4ff); }
+}
+.task-flash { animation: task-flash 1s ease; }
 .timeline-task:hover { filter: brightness(1.12); }
 .timeline-task.done { opacity: 0.4; }
 .timeline-now-line {
@@ -962,6 +978,14 @@ body.touch-dragging .tasks-left {
       <div class="card" id="settings-worktypes"></div>
       <div class="card" id="settings-projects"></div>
       <div class="card" id="settings-data"></div>
+      <div class="card" id="gcal-settings-card">
+        <h3>Googleカレンダー設定</h3>
+        <p style="font-size:13px;color:var(--gray-500);margin-top:6px">表示するカレンダーを選択してください（GDrive連携が必要です）</p>
+        <div id="gcal-calendar-list" style="margin-top:10px">
+          <p style="color:var(--gray-400);font-size:13px">読み込み中...</p>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="_reloadCalendarList()" style="margin-top:8px">カレンダー一覧を再取得</button>
+      </div>
     </div>
   </main>
 
@@ -985,6 +1009,24 @@ body.touch-dragging .tasks-left {
 <div id="review-modal" style="display:none"></div>
 <div id="completion-modal" style="display:none"></div>
 <div id="recurring-delete-modal" style="display:none"></div>
+
+<!-- GCal Import Modal -->
+<div id="gcal-import-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:24px;width:320px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+    <h3 style="margin:0 0 16px;font-size:16px">GCalイベントをインポート</h3>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <label style="font-size:13px;color:var(--gray-600)">タイトル
+        <input id="gcal-import-title" type="text" style="display:block;width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:14px;box-sizing:border-box;background:#fff;color:var(--ink);font-family:inherit">
+      </label>
+      <div id="gcal-import-meta" style="font-size:13px;color:var(--gray-500)"></div>
+      <div id="gcal-import-dup-warn" style="display:none;font-size:13px;color:var(--red-500);padding:6px 8px;background:rgba(181,84,77,.06);border-radius:6px">⚠ 同名のタスクが同日に既に存在します</div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
+      <button class="btn btn-outline" onclick="closeGCalImportModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="confirmGCalImport()">追加する</button>
+    </div>
+  </div>
+</div>
 
 <!-- Day Detail Popup -->
 <div id="cal-day-popup" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeDayDetail()">
@@ -1067,6 +1109,9 @@ const Storage = {
       tags: [],
       lastReviewShown: null,
       workHoursPerDay: 8,
+      gcalSettings: {
+        hiddenCalendarIds: []
+      },
     };
   },
 
@@ -1446,6 +1491,24 @@ const Storage = {
     this._gdriveFileId = null; this._gdriveToken = null; this._data = null;
   },
 
+  /* Google Calendar API: カレンダー一覧を取得（Settings UI 専用） */
+  async fetchCalendarList() {
+    if (!this._gdriveToken) return [];
+    try {
+      const res = await fetch(
+        'https://www.googleapis.com/calendar/v3/users/me/calendarList?fields=items(id,summary,backgroundColor,selected)',
+        { headers: { Authorization: `Bearer ${this._gdriveToken}` } }
+      );
+      if (res.status === 401) {
+        _showGDriveExpiredToast?.();
+        return [];
+      }
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.items || [];
+    } catch { return []; }
+  },
+
   /* Google Calendar API: その日のイベントを全カレンダーから取得 */
   async fetchCalEvents(date) {
     if (!this._gdriveToken) return null;
@@ -1461,7 +1524,8 @@ const Storage = {
       );
       if (!clRes.ok) return null;
       const clData = await clRes.json();
-      const calendars = (clData.items || []).filter(c => c.selected !== false);
+      const hidden = D().gcalSettings?.hiddenCalendarIds || [];
+      const calendars = (clData.items || []).filter(c => c.selected !== false && !hidden.includes(c.id));
       const results = await Promise.allSettled(
         calendars.map(cal =>
           fetch(
@@ -1757,10 +1821,12 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r8'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r9'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
+let _calendarListCache = null; // Settings UI用カレンダー一覧キャッシュ（Settings開くたびにクリア）
+let _gcalImportEv = null; // GCalインポートモーダル表示中のイベントオブジェクト
 let activeTab = 'tasks';
 let demoMode = false; // localStorageには保存しない（リロードのたびに必ずfalseから始まる）
 let collapsedSections = {};
@@ -2134,7 +2200,7 @@ function switchTab(tab) {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
   if (tab === 'review') renderReview();
-  if (tab === 'settings') renderSettings();
+  if (tab === 'settings') { renderSettings(); _loadCalendarListUI(); }
 }
 
 // ============================================================
@@ -2685,8 +2751,9 @@ function renderTimeline(d) {
     const top    = (sm - TL_START * 60) / 60 * PX + 2;
     const height = Math.max((em - sm) / 60 * PX - 2, 18);
     const color  = ev._calBg || '#4285F4';
-    return `<div class="gcal-event" style="left:${taskColPct}%;right:0;top:${top}px;height:${height}px;background:${color}22;border-left:3px solid ${color};color:${color}">
+    return `<div class="gcal-event" style="left:${taskColPct}%;right:0;top:${top}px;height:${height}px;background:${color}22;border-left:3px solid ${color};color:${color};pointer-events:none">
       <span class="gcal-event-title">${esc(ev.summary || '(タイトルなし)')}</span>
+      <button class="gcal-import-btn" data-ev-id="${esc(ev.id)}" onclick="openGCalImportModal(this.dataset.evId)" style="pointer-events:auto">＋</button>
     </div>`;
   }
   const gcalBlocks = visibleGcalEvents.map(gcalBlock).join('');
@@ -3550,6 +3617,163 @@ function handleSettingsDrop(e, type, targetId) {
 function saveWorkHoursPerDay() {
   const val = parseFloat(document.getElementById('work-hours-per-day').value);
   if (val > 0 && val <= 24) { D().workHoursPerDay = val; commit(); }
+}
+
+// ============================================================
+// GCAL PHASE 2 — カレンダー設定・インポート・重複チェック
+// ============================================================
+
+/* ③ 重複チェック */
+function isDuplicateTask(title, scheduledDate) {
+  const norm = s => s.trim().toLowerCase().normalize('NFKC');
+  const t = norm(title);
+  return D().tasks.some(task =>
+    task.scheduledDate === scheduledDate &&
+    task.status !== 'done' &&
+    task.status !== 'completed' &&
+    norm(task.title) === t
+  );
+}
+
+/* ① カレンダー一覧 UI */
+async function _loadCalendarListUI() {
+  _calendarListCache = null; // 毎回再取得
+  const el = document.getElementById('gcal-calendar-list');
+  if (!el) return;
+  el.innerHTML = '<p style="color:var(--gray-400);font-size:13px">読み込み中...</p>';
+  const items = await Storage.fetchCalendarList();
+  _calendarListCache = items;
+  if (!items.length) {
+    el.innerHTML = '<p style="color:var(--gray-400);font-size:13px">カレンダーが見つかりません（GDrive連携してください）</p>';
+    return;
+  }
+  const hidden = D().gcalSettings?.hiddenCalendarIds || [];
+  el.innerHTML = items.map(cal => `
+    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
+      <input type="checkbox" ${!hidden.includes(cal.id) ? 'checked' : ''}
+        onchange="_toggleCalendarVisibility('${cal.id.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', this.checked)">
+      <span style="width:12px;height:12px;border-radius:50%;background:${cal.backgroundColor || '#4285F4'};flex-shrink:0;display:inline-block"></span>
+      <span style="font-size:13px">${esc(cal.summary || cal.id)}</span>
+    </label>
+  `).join('');
+}
+
+async function _reloadCalendarList() {
+  _calendarListCache = null;
+  await _loadCalendarListUI();
+}
+
+function _toggleCalendarVisibility(calId, checked) {
+  if (!D().gcalSettings) D().gcalSettings = { hiddenCalendarIds: [] };
+  const hidden = D().gcalSettings.hiddenCalendarIds;
+  if (checked) {
+    D().gcalSettings.hiddenCalendarIds = hidden.filter(id => id !== calId);
+  } else {
+    if (!hidden.includes(calId)) hidden.push(calId);
+  }
+  _gcalEventsCache = {}; // セッションキャッシュをクリア
+  commit();
+}
+
+/* ② GCalイベント → タスクインポート */
+function importGCalTask(fields) {
+  const newTask = {
+    id: genId(),
+    title: fields.title,
+    projectId: null,
+    workType: null,
+    scheduledDate: fields.scheduledDate,
+    startTime: fields.startTime || null,
+    endTime: fields.endTime || null,
+    estimatedHours: fields.estimatedHours || 0,
+    actualHours: null,
+    partialHours: [],
+    status: 'pending',
+    tagIds: [],
+    notes: '',
+    priority: 'medium',
+    order: D().tasks.length,
+    createdAt: new Date().toISOString(),
+  };
+  D().tasks.push(newTask);
+  commit();
+  // 追加したカードをハイライト
+  setTimeout(() => {
+    const el = document.querySelector(`[data-task-id="${newTask.id}"]`);
+    if (el) {
+      el.classList.add('task-flash');
+      setTimeout(() => el.classList.remove('task-flash'), 1000);
+    }
+  }, 100);
+}
+
+function openGCalImportModal(evId) {
+  const evs = _gcalEventsCache[heroAnchorDate] || [];
+  const ev = evs.find(e => e.id === evId);
+  if (!ev) return;
+  _gcalImportEv = ev;
+
+  const dtStart = new Date(ev.start.dateTime);
+  const dtEnd   = new Date(ev.end.dateTime);
+  const startTime = `${pad(dtStart.getHours())}:${pad(dtStart.getMinutes())}`;
+  const endTime   = `${pad(dtEnd.getHours())}:${pad(dtEnd.getMinutes())}`;
+  const estH = Math.round((dtEnd - dtStart) / 360000) / 10;
+
+  const titleInput = document.getElementById('gcal-import-title');
+  titleInput.value = ev.summary || '';
+  titleInput.oninput = () => _updateGCalImportDupWarn();
+
+  document.getElementById('gcal-import-meta').innerHTML =
+    `日付: ${heroAnchorDate}　開始: ${startTime}　終了: ${endTime}　所要時間: ${estH}h`;
+
+  _updateGCalImportDupWarn();
+
+  const modal = document.getElementById('gcal-import-modal');
+  modal.style.display = 'flex';
+}
+
+function closeGCalImportModal() {
+  document.getElementById('gcal-import-modal').style.display = 'none';
+  _gcalImportEv = null;
+}
+
+function _updateGCalImportDupWarn() {
+  const title = document.getElementById('gcal-import-title')?.value || '';
+  const warn = document.getElementById('gcal-import-dup-warn');
+  if (!warn) return;
+  warn.style.display = isDuplicateTask(title, heroAnchorDate) ? 'block' : 'none';
+}
+
+function confirmGCalImport() {
+  const ev = _gcalImportEv;
+  if (!ev) return;
+  const title = document.getElementById('gcal-import-title').value.trim();
+  if (!title) return;
+
+  const dtStart = new Date(ev.start?.dateTime || (ev.start?.date + 'T00:00:00'));
+  const dtEnd   = new Date(ev.end?.dateTime   || (ev.end?.date   + 'T00:00:00'));
+
+  const startH = dtStart.getHours() * 60 + dtStart.getMinutes();
+  const endH   = dtEnd.getHours()   * 60 + dtEnd.getMinutes();
+  const TL_START_M = 7 * 60;
+  const TL_END_M   = 23 * 60;
+
+  const startTime = (ev.start?.dateTime && startH >= TL_START_M)
+    ? `${pad(dtStart.getHours())}:${pad(dtStart.getMinutes())}` : null;
+  const endTime   = (ev.end?.dateTime && endH <= TL_END_M)
+    ? `${pad(dtEnd.getHours())}:${pad(dtEnd.getMinutes())}` : null;
+  const estH = ev.start?.dateTime
+    ? Math.round((dtEnd - dtStart) / 360000) / 10 : 0;
+
+  importGCalTask({
+    title,
+    scheduledDate: heroAnchorDate,
+    startTime,
+    endTime,
+    estimatedHours: estH
+  });
+
+  closeGCalImportModal();
 }
 
 function renderSettings() {
