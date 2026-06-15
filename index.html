@@ -1825,7 +1825,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r16'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r17'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -4968,7 +4968,7 @@ function _selectQsItem(idx) {
     case 'project':  _qaProjectId = item.id; break;
     case 'worktype': _qaWorkType  = item.id; break;
     case 'date':
-      _qaDate = (item.id === '__someday') ? null : (item.id === todayStr() ? void 0 : item.id);
+      _qaDate = (item.id === '__someday') ? null : item.id;
       break;
     case 'priority': _qaPriority = item.id; break;
   }
@@ -5127,7 +5127,7 @@ function handleQuickAdd() {
   if (!val) return;
   const notes = notesEl ? notesEl.value.trim() : '';
   const d = D();
-  const scheduledDate = (_qaDate === void 0) ? todayStr() : _qaDate; // null → someday
+  const scheduledDate = (_qaDate === void 0) ? heroAnchorDate : _qaDate; // null → someday
   const prediction = _predictHoursData(val);
   d.tasks.push({
     id: genId(), title: val, notes,
@@ -5436,7 +5436,7 @@ function openNewTaskModal() {
   const priOpts = ['high','medium','low','none'].map(v =>
     `<option value="${v}"${(_qaPriority===v||(!_qaPriority&&v==='medium'))?' selected':''}>${{high:'高',medium:'中',low:'低',none:'なし'}[v]}</option>`
   ).join('');
-  const defaultDate = (_qaDate === void 0) ? todayStr() : (_qaDate || '');
+  const defaultDate = (_qaDate === void 0) ? heroAnchorDate : (_qaDate || '');
   const projOpts = `<option value="">なし</option>` + d.projects.map(p =>
     `<option value="${p.id}"${_qaProjectId===p.id?' selected':''}>${esc(p.name)}</option>`
   ).join('');
