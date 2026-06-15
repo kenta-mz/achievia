@@ -335,7 +335,7 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
   touch-action: none; z-index: 2;
 }
 .gcal-event {
-  position: absolute; left: 0; right: 0;
+  position: absolute;
   border-radius: 3px; padding: 2px 6px 2px 8px;
   pointer-events: none; z-index: 1; overflow: hidden; box-sizing: border-box;
 }
@@ -1757,7 +1757,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r7'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r8'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2666,6 +2666,15 @@ function renderTimeline(d) {
 
   // GCal イベントブロック（キャッシュから同期取得）
   const gcalEvents = Array.isArray(_gcalEventsCache[t]) ? _gcalEventsCache[t] : [];
+  // タイムライン表示範囲（7:00–23:00）内に実際に表示されるイベントだけを対象に分割を判断する
+  const visibleGcalEvents = gcalEvents.filter(ev => {
+    const dtS = new Date(ev.start.dateTime), dtE = new Date(ev.end.dateTime);
+    return (dtE.getHours()*60+dtE.getMinutes()) > TL_START*60 &&
+           (dtS.getHours()*60+dtS.getMinutes()) < TL_END*60;
+  });
+  // 表示対象GCalがある日のみ右30%をGCal帯として確保。ない日はタスクが全幅を使う
+  const GCAL_COL_PCT = 30;
+  const taskColPct = visibleGcalEvents.length > 0 ? (100 - GCAL_COL_PCT) : 100;
   function gcalBlock(ev) {
     const dtStart = new Date(ev.start.dateTime);
     const dtEnd   = new Date(ev.end.dateTime);
@@ -2676,17 +2685,11 @@ function renderTimeline(d) {
     const top    = (sm - TL_START * 60) / 60 * PX + 2;
     const height = Math.max((em - sm) / 60 * PX - 2, 18);
     const color  = ev._calBg || '#4285F4';
-    return `<div class="gcal-event" style="top:${top}px;height:${height}px;background:${color}22;border-left:3px solid ${color};color:${color}">
+    return `<div class="gcal-event" style="left:${taskColPct}%;right:0;top:${top}px;height:${height}px;background:${color}22;border-left:3px solid ${color};color:${color}">
       <span class="gcal-event-title">${esc(ev.summary || '(タイトルなし)')}</span>
     </div>`;
   }
-  const gcalBlocks = gcalEvents
-    .filter(ev => {
-      const dtS = new Date(ev.start.dateTime), dtE = new Date(ev.end.dateTime);
-      return (dtE.getHours()*60+dtE.getMinutes()) > TL_START*60 &&
-             (dtS.getHours()*60+dtS.getMinutes()) < TL_END*60;
-    })
-    .map(gcalBlock).join('');
+  const gcalBlocks = visibleGcalEvents.map(gcalBlock).join('');
 
   // Current time line
   const now = new Date();
@@ -2706,19 +2709,13 @@ function renderTimeline(d) {
     const toHex = n => n.toString(16).padStart(2, '0');
     return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
   }
-  function _tlTextColor(hex) {
-    const h = (hex || '').replace('#', '');
-    if (h.length !== 6) return '#1a1a1a';
-    const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
-    return (0.299*r + 0.587*g + 0.114*b) > 128 ? '#1a1a1a' : '#ffffff';
-  }
 
   function tlCard(task, style, h) {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
-    const bgColor   = proj ? proj.color : 'var(--gray-500)';
-    const textColor = proj ? _tlTextColor(proj.color) : '#ffffff';
-    const bdColor   = proj ? proj.color : 'var(--gray-600)';
+    const bgColor   = proj ? _tlPastelize(proj.color, 0.78) : 'var(--gray-200)';
+    const textColor = proj ? proj.color        : 'var(--gray-700)';
+    const bdColor   = proj ? _tlPastelize(proj.color, 0.4)  : 'var(--gray-400)';
     const timeLabel = task.startTime
       ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${task.estimatedHours}h`
       : `${task.estimatedHours}h`;
@@ -2742,7 +2739,9 @@ function renderTimeline(d) {
   }
 
   const gridCards = layouts.map(({ task, top, height, wPct, lPct }) => {
-    return tlCard(task, `top:${top}px;height:${height}px;left:calc(${lPct}% + 2px);width:calc(${wPct}% - 4px)`, height);
+    const adjLeft = lPct * taskColPct / 100;
+    const adjW    = wPct * taskColPct / 100;
+    return tlCard(task, `top:${top}px;height:${height}px;left:calc(${adjLeft}% + 2px);width:calc(${adjW}% - 4px)`, height);
   }).join('');
 
   const unschedCol = collapsedSections['_tlUnsched'];
