@@ -1019,7 +1019,7 @@ body.touch-dragging .tasks-left {
         <input id="gcal-import-title" type="text" style="display:block;width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:14px;box-sizing:border-box;background:#fff;color:var(--ink);font-family:inherit">
       </label>
       <div id="gcal-import-meta" style="font-size:13px;color:var(--gray-500)"></div>
-      <div id="gcal-import-dup-warn" style="display:none;font-size:13px;color:var(--red-500);padding:6px 8px;background:rgba(181,84,77,.06);border-radius:6px">⚠ 同名のタスクが同日に既に存在します</div>
+      <div id="gcal-import-dup-warn" style="display:none;font-size:13px;color:var(--red-500);padding:6px 8px;background:rgba(181,84,77,.06);border-radius:6px"></div>
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
       <button class="btn btn-outline" onclick="closeGCalImportModal()">キャンセル</button>
@@ -1821,7 +1821,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r11'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r12'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -3624,15 +3624,69 @@ function saveWorkHoursPerDay() {
 // ============================================================
 
 /* ③ 重複チェック */
-function isDuplicateTask(title, scheduledDate) {
-  const norm = s => s.trim().toLowerCase().normalize('NFKC');
-  const t = norm(title);
-  return D().tasks.some(task =>
-    task.scheduledDate === scheduledDate &&
-    task.status !== 'done' &&
-    task.status !== 'completed' &&
-    norm(task.title) === t
+
+// 同義語グループ（先頭が正規形、残りが表記揺れ）
+const _DUP_SYNONYMS = (() => {
+  const raw = [
+    ['静止画', 'still', 'スチル', 'スチール'],
+    ['動画', 'movie', 'video', 'ムービー', 'ビデオ'],
+    ['ミーティング', '打ち合わせ', 'うちあわせ', 'イメージ合わせ', 'イメージあわせ',
+     '認識合わせ', '認識あわせ', '相談', '会議', 'mtg', 'meeting'],
+  ];
+  const bn = s => s.normalize('NFKC').toLowerCase()
+    .replace(/[ぁ-ゖ]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
+  return raw.map(g => g.map(bn));
+})();
+
+function _normForDup(s) {
+  let r = s.trim().normalize('NFKC').toLowerCase()
+            .replace(/[ぁ-ゖ]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
+  for (const group of _DUP_SYNONYMS) {
+    const canonical = group[0];
+    for (const v of group.slice(1)) {
+      if (v) r = r.split(v).join(canonical);
+    }
+  }
+  return r;
+}
+
+function _levenshteinSimilarity(a, b) {
+  if (a === b) return 1;
+  const la = a.length, lb = b.length;
+  if (!la || !lb) return 0;
+  let prev = Array.from({length: lb + 1}, (_, i) => i);
+  for (let i = 1; i <= la; i++) {
+    const curr = [i];
+    for (let j = 1; j <= lb; j++)
+      curr[j] = a[i-1] === b[j-1] ? prev[j-1] : 1 + Math.min(prev[j], curr[j-1], prev[j-1]);
+    prev = curr;
+  }
+  return 1 - prev[lb] / Math.max(la, lb);
+}
+
+// returns {task, reason} | null
+// reason: 'exact' | 'contains' | 'similar' | 'overlap'
+function findDuplicateTask(title, scheduledDate, evStartMin, evEndMin) {
+  if (!title.trim()) return null;
+  const a = _normForDup(title);
+  const active = D().tasks.filter(t =>
+    t.scheduledDate === scheduledDate &&
+    t.status !== 'done' && t.status !== 'completed'
   );
+  for (const task of active) {
+    const b = _normForDup(task.title);
+    if (a === b) return { task, reason: 'exact' };
+    const minLen = Math.min(a.length, b.length);
+    if (minLen >= 4 && (a.includes(b) || b.includes(a))) return { task, reason: 'contains' };
+    if (minLen >= 4 && _levenshteinSimilarity(a, b) >= 0.8) return { task, reason: 'similar' };
+    if (evStartMin != null && evEndMin != null && task.startTime && task.endTime) {
+      const [sh, sm] = task.startTime.split(':').map(Number);
+      const [eh, em] = task.endTime.split(':').map(Number);
+      if (evStartMin < (eh * 60 + em) && evEndMin > (sh * 60 + sm))
+        return { task, reason: 'overlap' };
+    }
+  }
+  return null;
 }
 
 /* ① カレンダー一覧 UI */
@@ -3741,7 +3795,18 @@ function _updateGCalImportDupWarn() {
   const title = document.getElementById('gcal-import-title')?.value || '';
   const warn = document.getElementById('gcal-import-dup-warn');
   if (!warn) return;
-  warn.style.display = isDuplicateTask(title, heroAnchorDate) ? 'block' : 'none';
+  let evStartMin = null, evEndMin = null;
+  if (_gcalImportEv?.start?.dateTime) {
+    const dtS = new Date(_gcalImportEv.start.dateTime);
+    const dtE = new Date(_gcalImportEv.end.dateTime);
+    evStartMin = dtS.getHours() * 60 + dtS.getMinutes();
+    evEndMin   = dtE.getHours() * 60 + dtE.getMinutes();
+  }
+  const dup = findDuplicateTask(title, heroAnchorDate, evStartMin, evEndMin);
+  if (!dup) { warn.style.display = 'none'; return; }
+  const msgs = { exact: '同名のタスクが既に存在', contains: '類似タスクが既に存在', similar: '類似タスクが既に存在', overlap: '同時間帯のタスクが存在' };
+  warn.textContent = `⚠ 「${dup.task.title}」と重複の可能性（${msgs[dup.reason]}）`;
+  warn.style.display = 'block';
 }
 
 function confirmGCalImport() {
