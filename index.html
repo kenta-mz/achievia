@@ -1821,7 +1821,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r13'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r14'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -3669,14 +3669,22 @@ function _levenshteinSimilarity(a, b) {
 function findDuplicateTask(title, scheduledDate, evStartMin, evEndMin) {
   if (!title.trim()) return null;
   const a = _normForDup(title);
-  const active = D().tasks.filter(t =>
+  const allSameDay = D().tasks.filter(t =>
     t.scheduledDate === scheduledDate &&
-    t.type !== 'divider' &&
-    t.status !== 'done' && t.status !== 'completed'
+    t.type !== 'divider'
   );
+  // 1st pass: 完全一致は done 含め全タスクを対象に
+  for (const task of allSameDay) {
+    const b = _normForDup(task.title);
+    if (a === b) {
+      const isDone = task.status === 'done' || task.status === 'completed';
+      return { task, reason: isDone ? 'done-exact' : 'exact' };
+    }
+  }
+  // 2nd pass: 類似・時間重複は active タスクのみ
+  const active = allSameDay.filter(t => t.status !== 'done' && t.status !== 'completed');
   for (const task of active) {
     const b = _normForDup(task.title);
-    if (a === b) return { task, reason: 'exact' };
     const minLen = Math.min(a.length, b.length);
     if (minLen >= 4 && (a.includes(b) || b.includes(a))) return { task, reason: 'contains' };
     if (minLen >= 4 && _levenshteinSimilarity(a, b) >= 0.8) return { task, reason: 'similar' };
@@ -3805,7 +3813,7 @@ function _updateGCalImportDupWarn() {
   }
   const dup = findDuplicateTask(title, heroAnchorDate, evStartMin, evEndMin);
   if (!dup) { warn.style.display = 'none'; return; }
-  const msgs = { exact: '同名のタスクが既に存在', contains: '類似タスクが既に存在', similar: '類似タスクが既に存在', overlap: '同時間帯のタスクが存在' };
+  const msgs = { exact: '同名のタスクが既に存在', 'done-exact': '完了済みタスクが同名で存在', contains: '類似タスクが既に存在', similar: '類似タスクが既に存在', overlap: '同時間帯のタスクが存在' };
   warn.textContent = `⚠ 「${dup.task.title}」と重複の可能性（${msgs[dup.reason]}）`;
   warn.style.display = 'block';
 }
