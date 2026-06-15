@@ -1069,6 +1069,10 @@ body.touch-dragging .tasks-left {
     </div>
     <div id="task-edit-content" style="padding:16px 20px;overflow-y:auto;max-height:70vh"></div>
     <div class="modal-footer">
+      <div id="em-timeline-actions" style="display:none;gap:8px;margin-right:auto">
+        <button type="button" class="btn btn-danger btn-sm" onclick="const _id=_editModalId;closeEditModal();deleteTaskWithRecurringCheck(_id)">削除</button>
+        <button type="button" class="btn btn-sm" onclick="const _id=_editModalId;closeEditModal();cloneTask(_id)">複製</button>
+      </div>
       <button class="btn" onclick="closeEditModal()">キャンセル</button>
       <button class="btn btn-primary" id="em-save-btn" onclick="saveEditModal()">更新</button>
     </div>
@@ -1821,7 +1825,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r14'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r15'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2053,6 +2057,34 @@ function deleteSlotOnly(taskId, slotDate, slotIdx) {
     task.estimatedHours = ebd.reduce((s, e) => s + e.hours, 0);
   }
   closeCompletionModal();
+  commit();
+}
+
+function cloneTask(taskId) {
+  const d = D();
+  const src = d.tasks.find(t => t.id === taskId);
+  if (!src) return;
+  const cloned = {
+    ...src,
+    id:                  genId(),
+    status:              'pending',
+    completedAt:         null,
+    actualHours:         null,
+    partialHours:        [],
+    completedSlots:      [],
+    recurringId:         null,
+    recurring:           null,
+    estimatedHoursMode:  'total',
+    estimatedHoursByDate: [],
+    createdAt:           new Date().toISOString(),
+    order:               src.order + 0.5,
+  };
+  d.tasks.push(cloned);
+  // 同日タスクの order を整数に正規化
+  const sameDateTasks = d.tasks
+    .filter(t => t.scheduledDate === src.scheduledDate && !t._isSlot)
+    .sort((a, b) => a.order - b.order);
+  sameDateTasks.forEach((t, i) => { t.order = i; });
   commit();
 }
 
@@ -2607,6 +2639,9 @@ function taskRow(task, d) {
         <div class="task-actions">
           <button class="task-action-btn" onclick="openEditModal('${task.id}');event.stopPropagation()" title="編集">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10.5h2.5l5.5-5.5-2.5-2.5L2 8v2.5zm6.5-6.5 1 1"/></svg>
+          </button>
+          <button class="task-action-btn" onclick="cloneTask('${task.id}');event.stopPropagation()" title="複製">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="4.5" width="7" height="7" rx="1"/><path d="M1.5 8.5V2.5a1 1 0 0 1 1-1h6"/></svg>
           </button>
           ${!isUnscheduled ? `<button class="task-action-btn" onclick="taskToNote('${task.id}');event.stopPropagation()" title="Noteに複製 →">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.5h9M8 3.5l3 3-3 3"/></svg>
@@ -5250,9 +5285,11 @@ function showMoreRecurring() {
 // ============================================================
 let _editModalId = null;
 let _editModalType = 'task'; // 'task' | 'recurring-template'
+let _emSourceView = 'list'; // 'list' | 'timeline'
 
-function openEditModal(id) {
+function openEditModal(id, sourceView = 'list') {
   _editModalId = id;
+  _emSourceView = sourceView;
   const d = D();
   const task = d.tasks.find(t => t.id === id);
   if (!task) return;
@@ -5302,18 +5339,30 @@ function openEditModal(id) {
       ${_buildEmHoursUI(task)}
       ${(() => { const p = _predictHoursData(task.title); return p ? `<div style="font-size:11px;color:var(--pri-400);margin-top:3px">☆ 過去${p.count}件：平均 ${p.avg}h</div>` : ''; })()}
     </div>
-    <div class="em-grid" style="margin-top:12px">
+    ${(() => {
+      const _stP = task.startTime ? task.startTime.split(':').map(Number) : null;
+      const _etRaw = task.endTime || _calcEndTimeVal(task.startTime, task.estimatedHours);
+      const _etP = _etRaw ? _etRaw.split(':').map(Number) : null;
+      const _isDaily = task.estimatedHoursMode === 'daily';
+      return `<div class="em-grid" style="margin-top:12px">
       <div class="em-field" style="margin:0">
         <label>開始時刻</label>
-        <select id="em-starttime" onchange="_onEmStartTimeChange()">${_startTimeOpts(task.startTime)}</select>
+        <div style="display:flex;align-items:center;gap:4px">
+          <select id="em-start-h" onchange="_onEmStartHChange()">${_hourOpts(7,22,_stP?_stP[0]:null)}</select>
+          <span style="color:var(--gray-500)">:</span>
+          <select id="em-start-m" onchange="_onEmStartMChange()"${_stP?'':' disabled'}>${_minOpts(_stP?_stP[1]:null)}</select>
+        </div>
       </div>
       <div class="em-field" style="margin:0">
         <label>終了時刻</label>
-        <select id="em-endtime" onchange="_onEmEndTimeChange()"${task.estimatedHoursMode==='daily'?' disabled':''}>
-          ${_endTimeOpts(task.endTime || _calcEndTimeVal(task.startTime, task.estimatedHours))}
-        </select>
+        <div style="display:flex;align-items:center;gap:4px">
+          <select id="em-end-h" onchange="_onEmEndHChange()"${_isDaily?' disabled':''}>${_hourOpts(7,23,_etP?_etP[0]:null)}</select>
+          <span style="color:var(--gray-500)">:</span>
+          <select id="em-end-m" onchange="_onEmEndMChange()"${(_etP&&!_isDaily)?'':' disabled'}>${_minOpts(_etP?_etP[1]:null)}</select>
+        </div>
       </div>
-    </div>
+    </div>`;
+    })()}
     <div style="margin-top:12px">
       <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
         <input type="checkbox" id="em-recurring-toggle" ${hasRec?'checked':''} onchange="toggleEmRecurringUI()">
@@ -5368,6 +5417,7 @@ function openEditModal(id) {
   const saveBtn = document.getElementById('em-save-btn');
   if (titleEl) titleEl.textContent = 'タスクを編集';
   if (saveBtn) saveBtn.textContent = '更新';
+  document.getElementById('em-timeline-actions').style.display = (_emSourceView === 'timeline') ? 'flex' : 'none';
   document.getElementById('task-edit-modal').style.display = 'flex';
   document.getElementById('em-title').focus();
   _initEmHoursDailyRows(task);
@@ -5419,11 +5469,19 @@ function openNewTaskModal() {
     <div class="em-grid" style="margin-top:12px">
       <div class="em-field" style="margin:0">
         <label>開始時刻</label>
-        <select id="em-starttime" onchange="_onEmStartTimeChange()">${_startTimeOpts('')}</select>
+        <div style="display:flex;align-items:center;gap:4px">
+          <select id="em-start-h" onchange="_onEmStartHChange()">${_hourOpts(7,22,null)}</select>
+          <span style="color:var(--gray-500)">:</span>
+          <select id="em-start-m" onchange="_onEmStartMChange()" disabled>${_minOpts(null)}</select>
+        </div>
       </div>
       <div class="em-field" style="margin:0">
         <label>終了時刻</label>
-        <select id="em-endtime" onchange="_onEmEndTimeChange()">${_endTimeOpts('')}</select>
+        <div style="display:flex;align-items:center;gap:4px">
+          <select id="em-end-h" onchange="_onEmEndHChange()">${_hourOpts(7,23,null)}</select>
+          <span style="color:var(--gray-500)">:</span>
+          <select id="em-end-m" onchange="_onEmEndMChange()" disabled>${_minOpts(null)}</select>
+        </div>
       </div>
     </div>
     <div style="margin-top:12px">
@@ -5642,8 +5700,8 @@ function saveEditModal() {
       estimatedHoursMode: _emMode,
       estimatedHoursByDate: _emByDate,
       actualHours: null, partialHours: [], status: 'pending', tagIds: [],
-      startTime: document.getElementById('em-starttime')?.value || null,
-      endTime:   document.getElementById('em-endtime')?.value   || null,
+      startTime: _readTimePair('em-start-h','em-start-m'),
+      endTime:   (() => { const _s=_readTimePair('em-start-h','em-start-m'),_e=_readTimePair('em-end-h','em-end-m'); if(!_s||!_e)return _e; const toM=t=>{const[h,m]=t.split(':').map(Number);return h*60+m;}; return toM(_e)>toM(_s)?_e:null; })(),
       scheduledDate, order: d.tasks.length,
       completedAt: null, createdAt: new Date().toISOString()
     };
@@ -5696,8 +5754,8 @@ function saveEditModal() {
     ? (_emByDate2.reduce((s, p) => s + p.hours, 0) || 1)
     : parseFloat(document.getElementById('em-hours')?.value || '1');
   task.notes         = document.getElementById('em-notes')?.value     || '';
-  task.startTime     = document.getElementById('em-starttime')?.value || null;
-  task.endTime       = document.getElementById('em-endtime')?.value   || null;
+  task.startTime = _readTimePair('em-start-h','em-start-m');
+  task.endTime   = (() => { const _s=task.startTime,_e=_readTimePair('em-end-h','em-end-m'); if(!_s||!_e)return _e; const toM=t=>{const[h,m]=t.split(':').map(Number);return h*60+m;}; return toM(_e)>toM(_s)?_e:null; })();
   const newStatus = document.getElementById('em-status')?.value;
   if (newStatus && task.status !== 'completed') task.status = newStatus;
 
@@ -5739,51 +5797,86 @@ function saveEditModal() {
 
 let _emLastEdited = null; // 'estimatedHours' | 'endTime'
 
-function _timeOpts(from, to, selected) {
-  let s = '<option value="">自動</option>';
-  for (let m = from; m <= to; m += 15) {
-    const t = `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
-    s += `<option value="${t}"${selected===t?' selected':''}>${t}</option>`;
+// 「時」select の option リストを生成
+function _hourOpts(from, to, selectedH) {
+  let s = `<option value=""${selectedH==null?' selected':''}>自動</option>`;
+  for (let h = from; h <= to; h++) {
+    s += `<option value="${h}"${selectedH===h?' selected':''}>${h}</option>`;
   }
   return s;
 }
-function _startTimeOpts(sel) { return _timeOpts(7*60, 22*60, sel||''); }
-function _endTimeOpts(sel)   { return _timeOpts(7*60+15, 23*60+45, sel||''); }
 
-// startTime + estimatedHours → endTime（30分切り捨て）
+// 「分」select の option リストを生成（案B: "--"プレースホルダー付き）
+function _minOpts(selectedM) {
+  let s = `<option value=""${selectedM==null?' selected':''}>--</option>`;
+  for (let m = 0; m < 60; m += 5) {
+    s += `<option value="${m}"${selectedM===m?' selected':''}>${String(m).padStart(2,'0')}</option>`;
+  }
+  return s;
+}
+
+// 時+分 select に初期値をセット
+function _setTimePair(hId, mId, timeStr) {
+  const hEl = document.getElementById(hId);
+  const mEl = document.getElementById(mId);
+  if (!hEl || !mEl) return;
+  if (!timeStr) {
+    hEl.value = '';
+    mEl.value = '';   // → "--" プレースホルダー
+    mEl.disabled = true;
+  } else {
+    const [h, m] = timeStr.split(':').map(Number);
+    hEl.value = String(h);
+    mEl.value = String(m);
+    mEl.disabled = false;
+  }
+}
+
+// 時+分 select から "HH:MM" 文字列または null を返す
+function _readTimePair(hId, mId) {
+  const h = document.getElementById(hId)?.value;
+  if (!h) return null;
+  const m = document.getElementById(mId)?.value || '0';
+  return `${String(Number(h)).padStart(2,'0')}:${String(Number(m)).padStart(2,'0')}`;
+}
+
+// startTime + estimatedHours → endTime（5分切り捨て）
 function _calcEndTimeVal(startTime, estimatedHours) {
   if (!startTime) return null;
   if (!estimatedHours || estimatedHours <= 0) return null;
   const toM = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
   const startMins = toM(startTime);
-  const endMins = Math.floor((startMins + Math.round(estimatedHours * 60)) / 15) * 15;
-  if (endMins > 23*60+45 || endMins <= startMins) return null;
+  const endMins = Math.floor((startMins + Math.round(estimatedHours * 60)) / 5) * 5;
+  if (endMins > 23*60+55 || endMins <= startMins) return null;
   return `${String(Math.floor(endMins/60)).padStart(2,'0')}:${String(endMins%60).padStart(2,'0')}`;
 }
 
-function _onEmStartTimeChange() {
-  const startTime = document.getElementById('em-starttime')?.value || null;
-  if (_emLastEdited === 'endTime') {
-    // 終了時刻が最後に編集された → 予定時間を逆算
-    const endTime = document.getElementById('em-endtime')?.value || null;
-    if (startTime && endTime) {
-      const toM = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
-      const diff = toM(endTime) - toM(startTime);
-      if (diff > 0) { const el = document.getElementById('em-hours'); if (el) el.value = diff/60; }
-    }
-  } else {
-    // 予定時間が最後に編集された（または初期状態）→ 終了時刻を計算
-    const hoursEl = document.getElementById('em-hours');
-    const h = hoursEl ? parseFloat(hoursEl.value) : null;
-    const endEl = document.getElementById('em-endtime');
-    if (endEl) endEl.value = _calcEndTimeVal(startTime, h) || '';
+function _onEmStartHChange() {
+  const h = document.getElementById('em-start-h')?.value;
+  const mEl = document.getElementById('em-start-m');
+  if (mEl) {
+    if (h === '') { mEl.disabled = true; mEl.value = ''; }
+    else { mEl.disabled = false; if (!mEl.value || mEl.value === '') mEl.value = '0'; }
   }
+  _emLastEdited = null;
+  _recalcEndTime();
 }
 
-function _onEmEndTimeChange() {
+function _onEmStartMChange() {
+  _emLastEdited = null;
+  _recalcEndTime();
+}
+
+function _onEmEndHChange() {
+  const h = document.getElementById('em-end-h')?.value;
+  const mEl = document.getElementById('em-end-m');
+  if (mEl) {
+    if (h === '') { mEl.disabled = true; mEl.value = ''; }
+    else { mEl.disabled = false; if (!mEl.value || mEl.value === '') mEl.value = '0'; }
+  }
   _emLastEdited = 'endTime';
-  const startTime = document.getElementById('em-starttime')?.value || null;
-  const endTime   = document.getElementById('em-endtime')?.value   || null;
+  const startTime = _readTimePair('em-start-h','em-start-m');
+  const endTime   = _readTimePair('em-end-h','em-end-m');
   if (startTime && endTime) {
     const toM = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
     const diff = toM(endTime) - toM(startTime);
@@ -5791,13 +5884,34 @@ function _onEmEndTimeChange() {
   }
 }
 
+function _onEmEndMChange() {
+  _emLastEdited = 'endTime';
+  const startTime = _readTimePair('em-start-h','em-start-m');
+  const endTime   = _readTimePair('em-end-h','em-end-m');
+  if (startTime && endTime) {
+    const toM = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
+    const diff = toM(endTime) - toM(startTime);
+    if (diff > 0) { const el = document.getElementById('em-hours'); if (el) el.value = diff/60; }
+  }
+}
+
+function _recalcEndTime() {
+  const startTime = _readTimePair('em-start-h','em-start-m');
+  if (!startTime) return;
+  if (_emLastEdited === 'endTime') return;
+  const hoursEl = document.getElementById('em-hours');
+  const h = hoursEl ? parseFloat(hoursEl.value) : null;
+  const endTime = _calcEndTimeVal(startTime, h);
+  if (endTime) _setTimePair('em-end-h','em-end-m', endTime);
+}
+
 function _onEmEstimatedHoursChange() {
   _emLastEdited = 'estimatedHours';
-  const startTime = document.getElementById('em-starttime')?.value || null;
+  const startTime = _readTimePair('em-start-h','em-start-m');
   const hoursEl   = document.getElementById('em-hours');
   const h = hoursEl ? parseFloat(hoursEl.value) : null;
-  const endEl = document.getElementById('em-endtime');
-  if (endEl) endEl.value = _calcEndTimeVal(startTime, h) || '';
+  const endTime = _calcEndTimeVal(startTime, h);
+  if (endTime) _setTimePair('em-end-h','em-end-m', endTime);
 }
 
 // ============================================================
@@ -5829,8 +5943,8 @@ function toggleEmHoursMode() {
     daily.style.display = '';
     btn.textContent = '合計で入力 ▼';
   }
-  const endTimeEl = document.getElementById('em-endtime');
-  if (endTimeEl) endTimeEl.disabled = total.style.display === 'none';
+  const _isDaily2 = total.style.display === 'none';
+  ['em-end-h','em-end-m'].forEach(id => { const el=document.getElementById(id); if(el) el.disabled=_isDaily2; });
   _updateEmHoursSum();
 }
 
@@ -6086,11 +6200,11 @@ let _tlDragGrabOffsetY = 0;
 
 function _onTlTaskClick(e, taskId) {
   if (_tlRecentDrag) return;
-  openEditModal(taskId);
+  openEditModal(taskId, 'timeline');
 }
 function _onTlUnschedTaskClick(e, taskId) {
   if (_tlRecentDrag) return;
-  openEditModal(taskId);
+  openEditModal(taskId, 'timeline');
 }
 const TL_DRAG_DELAY   = 300;
 const TL_START_M      = 7 * 60;
