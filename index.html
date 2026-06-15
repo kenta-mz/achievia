@@ -1757,7 +1757,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r5'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r6'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2706,12 +2706,18 @@ function renderTimeline(d) {
     const toHex = n => n.toString(16).padStart(2, '0');
     return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
   }
+  function _tlTextColor(hex) {
+    const h = (hex || '').replace('#', '');
+    if (h.length !== 6) return '#1a1a1a';
+    const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+    return (0.299*r + 0.587*g + 0.114*b) > 150 ? '#1a1a1a' : '#ffffff';
+  }
 
   function tlCard(task, style, h) {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
     const bgColor   = proj ? proj.color : 'var(--gray-500)';
-    const textColor = '#ffffff';
+    const textColor = proj ? _tlTextColor(proj.color) : '#ffffff';
     const bdColor   = proj ? proj.color : 'var(--gray-600)';
     const timeLabel = task.startTime
       ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${task.estimatedHours}h`
