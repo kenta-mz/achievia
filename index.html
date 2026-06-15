@@ -1757,7 +1757,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r3'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r4'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2710,9 +2710,9 @@ function renderTimeline(d) {
   function tlCard(task, style, h) {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
-    const bgColor   = proj ? _tlPastelize(proj.color, 0.60) : 'var(--gray-200)';
-    const textColor = proj ? proj.color        : 'var(--gray-700)';
-    const bdColor   = proj ? _tlPastelize(proj.color, 0.4)  : 'var(--gray-400)';
+    const bgColor   = proj ? _tlPastelize(proj.color, 0.35) : 'var(--gray-300)';
+    const textColor = 'var(--gray-900)';
+    const bdColor   = proj ? _tlPastelize(proj.color, 0.15) : 'var(--gray-500)';
     const timeLabel = task.startTime
       ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${task.estimatedHours}h`
       : `${task.estimatedHours}h`;
