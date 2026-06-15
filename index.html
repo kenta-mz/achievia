@@ -348,8 +348,8 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
   top: 2px; right: 2px;
   width: 18px; height: 18px;
   border: none; border-radius: 50%;
-  background: currentColor; color: white;
-  font-size: 12px; line-height: 1;
+  color: white;
+  font-size: 12px; line-height: 18px; text-align: center;
   cursor: pointer; opacity: 0.5; padding: 0;
   touch-action: manipulation;
 }
@@ -1821,7 +1821,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r10'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r11'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2753,7 +2753,7 @@ function renderTimeline(d) {
     const color  = ev._calBg || '#4285F4';
     return `<div class="gcal-event" style="left:${taskColPct}%;right:0;top:${top}px;height:${height}px;background:${color}22;border-left:3px solid ${color};color:${color};pointer-events:none">
       <span class="gcal-event-title">${esc(ev.summary || '(タイトルなし)')}</span>
-      <button class="gcal-import-btn" data-ev-id="${esc(ev.id)}" onclick="openGCalImportModal(this.dataset.evId)" style="pointer-events:auto">＋</button>
+      <button class="gcal-import-btn" data-ev-id="${esc(ev.id)}" onclick="openGCalImportModal(this.dataset.evId)" style="pointer-events:auto;background:${color}">＋</button>
     </div>`;
   }
   const gcalBlocks = visibleGcalEvents.map(gcalBlock).join('');
