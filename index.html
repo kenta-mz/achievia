@@ -1825,7 +1825,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r17'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r18'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2315,8 +2315,23 @@ function setView(mode) {
   else document.body.classList.remove('tl-view');
   render();
 }
+function _demoCal(date) {
+  return [
+    { id: 'demo-cal-1', summary: 'チームMTG',
+      start: { dateTime: `${date}T09:00:00` }, end: { dateTime: `${date}T10:00:00` },
+      _calBg: '#4285F4' },
+    { id: 'demo-cal-2', summary: '集中作業ブロック',
+      start: { dateTime: `${date}T14:00:00` }, end: { dateTime: `${date}T16:00:00` },
+      _calBg: '#0F9D58' },
+  ];
+}
 async function _loadGCalForDate(date) {
   if (Array.isArray(_gcalEventsCache[date])) return; // キャッシュ済みならスキップ
+  if (demoMode) {
+    _gcalEventsCache[date] = _demoCal(date);
+    if (heroAnchorDate === date) render();
+    return;
+  }
   const events = await Storage.fetchCalEvents(date);
   if (events === null) return; // 失敗 or 未認証：キャッシュに入れない（次回リトライ可）
   _gcalEventsCache[date] = events;
@@ -3982,15 +3997,19 @@ function onToggleDemoMode(checked) {
   if (checked) {
     Storage.enterDemoMode();
     document.body.classList.add('demo-mode');
+    _gcalEventsCache = {};
     setVaultUI(true);
+    _loadGCalForDate(heroAnchorDate);
     render();
     return;
   }
   Storage.exitDemoMode();
   document.body.classList.remove('demo-mode');
+  _gcalEventsCache = {};
   if (Storage._data) {
     setVaultUI(Storage.connected);
     render();
+    _loadGCalForDate(heroAnchorDate);
   } else {
     // 起動画面の「デモモードを試す」から入った場合は実データが存在しないため、接続画面に戻す
     document.getElementById('app').style.display = 'none';
