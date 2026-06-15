@@ -1825,7 +1825,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r18'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r19'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2334,6 +2334,7 @@ async function _loadGCalForDate(date) {
   }
   const events = await Storage.fetchCalEvents(date);
   if (events === null) return; // 失敗 or 未認証：キャッシュに入れない（次回リトライ可）
+  if (demoMode) return; // await 後にデモモードへ切り替わっていたら実データを捨てる
   _gcalEventsCache[date] = events;
   if (heroAnchorDate === date) render(); // race condition 対策：表示日が変わっていたら再描画しない
 }
