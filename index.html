@@ -1821,7 +1821,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r12'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-15-r13'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -3671,6 +3671,7 @@ function findDuplicateTask(title, scheduledDate, evStartMin, evEndMin) {
   const a = _normForDup(title);
   const active = D().tasks.filter(t =>
     t.scheduledDate === scheduledDate &&
+    t.type !== 'divider' &&
     t.status !== 'done' && t.status !== 'completed'
   );
   for (const task of active) {
