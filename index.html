@@ -1831,7 +1831,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r27'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r28'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5804,6 +5804,12 @@ function saveEditModal() {
       scheduledDate, order: d.tasks.length,
       completedAt: null, createdAt: new Date().toISOString()
     };
+    // 開始・終了時刻が両方設定されている場合は実際の時間差を estimatedHours に反映
+    if (_emMode !== 'daily' && newTask.startTime && newTask.endTime) {
+      const _toM = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+      const _diff = _toM(newTask.endTime) - _toM(newTask.startTime);
+      if (_diff > 0) newTask.estimatedHours = _diff / 60;
+    }
 
     // Handle recurring for new task
     const recurringOn = document.getElementById('em-recurring-toggle')?.checked;
