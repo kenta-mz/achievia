@@ -1831,7 +1831,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r22'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r23'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2595,10 +2595,10 @@ function taskRow(task, d) {
   const hoursBadge = isUnscheduled
     ? `<button class="tag-hours" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">${task.estimatedHours || 0}h</button>`
     : effectiveDone
-    ? `<span class="tag-hours" style="cursor:default;color:var(--green-600)">${partialOnDate > 0 ? partialOnDate : slotH}h</span>`
+    ? `<span class="tag-hours" style="cursor:default;color:var(--green-600)">${partialOnDate > 0 ? _fmtH(partialOnDate) : _fmtH(slotH)}h</span>`
     : partialOnDate > 0
-    ? `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()" style="color:var(--amber-500)">${partialOnDate}h / ${slotH}h</button>`
-    : `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()">${slotH}h</button>`;
+    ? `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()" style="color:var(--amber-500)">${_fmtH(partialOnDate)}h / ${_fmtH(slotH)}h</button>`
+    : `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()">${_fmtH(slotH)}h</button>`;
   // ステータスバッジ（いつかやる欄・showStatus:false の作業種類は非表示、完了時は「● 完了」を表示）
   const wtShowStatus = wt ? (wt.showStatus !== false) : true;
   const statusLabel = { pending: '未着手', in_progress: '進行中', waiting: '待ち', completed: '完了' };
