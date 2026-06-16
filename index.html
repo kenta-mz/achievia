@@ -1831,7 +1831,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r21'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r22'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2305,8 +2305,8 @@ function renderHero() {
     </div>
     ${viewMode !== 'timeline' ? `
     <div class="hero-hours-row">
-      <span class="hero-hours-big">${doneH}h</span>
-      <span class="hero-hours-total">/ ${totalH}h</span>
+      <span class="hero-hours-big">${_fmtH(doneH)}h</span>
+      <span class="hero-hours-total">/ ${_fmtH(totalH)}h</span>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <div class="progress-bar" style="flex:1;margin-bottom:0"><div class="progress-fill" style="width:${pct}%"></div></div>
@@ -4107,7 +4107,7 @@ let _reviewDate = null;
 let _reviewMemo  = '';
 let _reviewStep  = 1;
 
-function _fmtH(h) { return String(parseFloat(h.toFixed(1))); } // 1.0→"1"  1.5→"1.5"
+function _fmtH(h) { return String(parseFloat(h.toFixed(2))); } // 1.0→"1"  1.5→"1.5"  1.17→"1.17"
 
 function checkReview() {
   const d = D(); const yest = yesterdayStr(); const t = todayStr();
@@ -4142,7 +4142,7 @@ function _renderReviewStep1() {
     <div class="review-task-row">
       <span class="review-check" style="color:var(--green-500)">✓</span>
       <span class="review-title done">${esc(t.title)}</span>
-      <span class="review-hours">${t.actualHours ?? t.estimatedHours}h</span>
+      <span class="review-hours">${_fmtH(t.actualHours ?? t.estimatedHours)}h</span>
     </div>`).join('');
 
   const pendingRows = pending.map(t => `
