@@ -3865,7 +3865,8 @@ function _predictGCalFields(title) {
         }
       }
       const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
-      if (top) projectId = top[0];
+      // 削除済みプロジェクトIDが返らないよう現在のprojectsに存在するか確認
+      if (top && D().projects.find(p => p.id === top[0])) projectId = top[0];
     }
   }
 
@@ -3878,11 +3879,11 @@ function openGCalImportModal(evId) {
   if (!ev) return;
   _gcalImportEv = ev;
 
-  const dtStart = new Date(ev.start.dateTime);
-  const dtEnd   = new Date(ev.end.dateTime);
-  const startTime = `${pad(dtStart.getHours())}:${pad(dtStart.getMinutes())}`;
-  const endTime   = `${pad(dtEnd.getHours())}:${pad(dtEnd.getMinutes())}`;
-  const estH = Math.round((dtEnd - dtStart) / 360000) / 10;
+  const dtStart = new Date(ev.start?.dateTime || (ev.start?.date + 'T00:00:00'));
+  const dtEnd   = new Date(ev.end?.dateTime   || (ev.end?.date   + 'T00:00:00'));
+  const startTime = ev.start?.dateTime ? `${pad(dtStart.getHours())}:${pad(dtStart.getMinutes())}` : '終日';
+  const endTime   = ev.end?.dateTime   ? `${pad(dtEnd.getHours())}:${pad(dtEnd.getMinutes())}`   : '';
+  const estH = ev.start?.dateTime ? Math.round((dtEnd - dtStart) / 360000) / 10 : 0;
 
   const titleInput = document.getElementById('gcal-import-title');
   titleInput.value = ev.summary || '';
@@ -3898,7 +3899,7 @@ function openGCalImportModal(evId) {
   wtSel.innerHTML = '<option value="">なし</option>' +
     D().workTypes.map(w => `<option value="${esc(w.id)}">${esc(w.label)}</option>`).join('');
 
-  // タイトルから推定して初期値セット（推定は初回のみ・手動変更を尊重）
+  // タイトルから推定して初期値セット（モーダルを開くたびに上書き）
   const _predicted = _predictGCalFields(ev.summary || '');
   projSel.value = _predicted.projectId || '';
   wtSel.value   = _predicted.workType  || '';
