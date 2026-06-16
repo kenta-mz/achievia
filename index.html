@@ -402,7 +402,6 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
   outline: 2px dashed rgba(99, 102, 241, 0.6); outline-offset: 2px;
   background: rgba(99, 102, 241, 0.08); border-radius: 8px;
 }
-.timeline-unscheduled.tl-no-tasks:not(.active) { visibility: hidden; }
 
 /* ── Notes Panel ── */
 .notes-panel {
@@ -1844,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r33'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r34'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2897,13 +2896,12 @@ function renderTimeline(d) {
   }).join('');
 
   return `<div style="padding:12px">
-    <div class="timeline-unscheduled${noTime.length ? (unschedCol ? ' collapsed' : '') : ' tl-no-tasks'}" style="margin-top:0;border-top:none;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:12px;padding-top:0">
-      ${noTime.length ? `
+    <div class="timeline-unscheduled${unschedCol ? ' collapsed' : ''}" style="margin-top:0;border-top:none;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:12px;padding-top:0">
       <div class="timeline-unscheduled-title" onclick="toggleSec('_tlUnsched')">
         <span class="section-toggle ${unschedCol ? 'closed' : ''}">▼</span>
         <span>時刻未設定 (${noTime.length}件)</span>
       </div>
-      ${unschedCol ? '' : unschedCards}` : `<div class="timeline-unscheduled-title">時刻未設定に戻す</div>`}
+      ${unschedCol ? '' : unschedCards}
     </div>
     <div class="timeline-wrap">
       <div class="timeline-grid">
