@@ -1012,11 +1012,17 @@ body.touch-dragging .tasks-left {
 
 <!-- GCal Import Modal -->
 <div id="gcal-import-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:12px;padding:24px;width:320px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+  <div style="background:#fff;border-radius:12px;padding:24px;width:320px;max-width:90vw;max-height:calc(100dvh - 32px);overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)">
     <h3 style="margin:0 0 16px;font-size:16px">GCalイベントをインポート</h3>
     <div style="display:flex;flex-direction:column;gap:10px">
       <label style="font-size:13px;color:var(--gray-600)">タイトル
         <input id="gcal-import-title" type="text" style="display:block;width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:14px;box-sizing:border-box;background:#fff;color:var(--ink);font-family:inherit">
+      </label>
+      <label style="font-size:13px;color:var(--gray-600)">プロジェクト
+        <select id="gcal-import-project" style="display:block;width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:14px;box-sizing:border-box;background:#fff;color:var(--ink);font-family:inherit"></select>
+      </label>
+      <label style="font-size:13px;color:var(--gray-600)">作業種類
+        <select id="gcal-import-worktype" style="display:block;width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:14px;box-sizing:border-box;background:#fff;color:var(--ink);font-family:inherit"></select>
       </label>
       <div id="gcal-import-meta" style="font-size:13px;color:var(--gray-500)"></div>
       <div id="gcal-import-dup-warn" style="display:none;font-size:13px;color:var(--red-500);padding:6px 8px;background:rgba(181,84,77,.06);border-radius:6px"></div>
@@ -1825,7 +1831,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-15-r19'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r20'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -3794,8 +3800,8 @@ function importGCalTask(fields) {
   const newTask = {
     id: genId(),
     title: fields.title,
-    projectId: null,
-    workType: null,
+    projectId: fields.projectId,
+    workType:  fields.workType,
     scheduledDate: fields.scheduledDate,
     startTime: fields.startTime || null,
     endTime: fields.endTime || null,
@@ -3821,6 +3827,51 @@ function importGCalTask(fields) {
   }, 100);
 }
 
+// GCalイベントタイトルからプロジェクト・作業種類を推定する。
+// workType推定はデフォルトworkTypesのid（'meeting'/'coding'/'design'/'document'）を前提にしており、
+// ユーザーがデフォルトworkTypeを削除・再作成した場合は推定されない（idがgenId()になるため）。
+function _predictGCalFields(title) {
+  const lc = title.toLowerCase();
+
+  // workType推定: キーワード優先マッチ（上から順に評価）
+  let workType = null;
+  const KW = {
+    meeting:  ['mtg','ミーティング','会議','連絡会','打合せ','打ち合わせ','朝会','定例','面談'],
+    coding:   ['コーディング','実装','開発','プログラム','coding','デバッグ'],
+    design:   ['デザイン','design'],
+    document: ['ドキュメント','文書','仕様書','資料'],
+  };
+  for (const [wt, kws] of Object.entries(KW)) {
+    if (kws.some(k => lc.includes(k))) { workType = wt; break; }
+  }
+  if (workType && !D().workTypes.find(w => w.id === workType)) workType = null;
+
+  // projectId推定①: プロジェクト名がタイトルに含まれる
+  let projectId = null;
+  for (const p of D().projects) {
+    if (lc.includes(p.name.toLowerCase())) { projectId = p.id; break; }
+  }
+
+  // projectId推定②（①未確定時）: 既存タスクのタイトル前半一致 → 多数決
+  // タイトルが短すぎる（4文字未満）場合は誤マッチを防ぐためスキップ
+  if (!projectId && D().projects.length > 0) {
+    const prefix = lc.slice(0, Math.max(4, Math.floor(lc.length / 2)));
+    if (prefix.length >= 4) {
+      const cnt = {};
+      for (const t of D().tasks) {
+        if (!t.projectId || !t.title) continue;
+        if (t.title.toLowerCase().includes(prefix)) {
+          cnt[t.projectId] = (cnt[t.projectId] || 0) + 1;
+        }
+      }
+      const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
+      if (top) projectId = top[0];
+    }
+  }
+
+  return { projectId, workType };
+}
+
 function openGCalImportModal(evId) {
   const evs = _gcalEventsCache[heroAnchorDate] || [];
   const ev = evs.find(e => e.id === evId);
@@ -3836,6 +3887,21 @@ function openGCalImportModal(evId) {
   const titleInput = document.getElementById('gcal-import-title');
   titleInput.value = ev.summary || '';
   titleInput.oninput = () => _updateGCalImportDupWarn();
+
+  // プロジェクト select 動的生成
+  const projSel = document.getElementById('gcal-import-project');
+  projSel.innerHTML = '<option value="">なし</option>' +
+    D().projects.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+
+  // 作業種類 select 動的生成
+  const wtSel = document.getElementById('gcal-import-worktype');
+  wtSel.innerHTML = '<option value="">なし</option>' +
+    D().workTypes.map(w => `<option value="${esc(w.id)}">${esc(w.label)}</option>`).join('');
+
+  // タイトルから推定して初期値セット（推定は初回のみ・手動変更を尊重）
+  const _predicted = _predictGCalFields(ev.summary || '');
+  projSel.value = _predicted.projectId || '';
+  wtSel.value   = _predicted.workType  || '';
 
   document.getElementById('gcal-import-meta').innerHTML =
     `日付: ${heroAnchorDate}　開始: ${startTime}　終了: ${endTime}　所要時間: ${estH}h`;
@@ -3895,7 +3961,9 @@ function confirmGCalImport() {
     scheduledDate: heroAnchorDate,
     startTime,
     endTime,
-    estimatedHours: estH
+    estimatedHours: estH,
+    projectId: document.getElementById('gcal-import-project').value || null,
+    workType:  document.getElementById('gcal-import-worktype').value  || null,
   });
 
   closeGCalImportModal();
