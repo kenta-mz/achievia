@@ -1831,7 +1831,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r28'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r29'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5978,6 +5978,24 @@ function _onEmStartMChange() {
   _recalcEndTime();
 }
 
+function _setEmHoursValue(diffMin) {
+  const el = document.getElementById('em-hours');
+  if (!el) return;
+  const h = diffMin / 60;
+  const prev = el.querySelector('option[data-dynamic]');
+  if (prev) prev.remove();
+  el.value = h;
+  if (parseFloat(el.value) !== h) {
+    const opt = document.createElement('option');
+    opt.value = h;
+    opt.textContent = _fmtH(h);
+    opt.dataset.dynamic = '1';
+    const after = [...el.options].find(o => parseFloat(o.value) > h);
+    after ? el.insertBefore(opt, after) : el.add(opt);
+    el.value = h;
+  }
+}
+
 function _onEmEndHChange() {
   const h = document.getElementById('em-end-h')?.value;
   const mEl = document.getElementById('em-end-m');
@@ -5991,7 +6009,7 @@ function _onEmEndHChange() {
   if (startTime && endTime) {
     const toM = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
     const diff = toM(endTime) - toM(startTime);
-    if (diff > 0) { const el = document.getElementById('em-hours'); if (el) el.value = diff/60; }
+    if (diff > 0) _setEmHoursValue(diff);
   }
 }
 
@@ -6002,7 +6020,7 @@ function _onEmEndMChange() {
   if (startTime && endTime) {
     const toM = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
     const diff = toM(endTime) - toM(startTime);
-    if (diff > 0) { const el = document.getElementById('em-hours'); if (el) el.value = diff/60; }
+    if (diff > 0) _setEmHoursValue(diff);
   }
 }
 
