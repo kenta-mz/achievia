@@ -319,7 +319,7 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 
 /* ── Timeline ── */
 .timeline-wrap { position: relative; padding-left: 52px; }
-.timeline-grid { position: relative; height: 1200px; }
+.timeline-grid { position: relative; height: 1200px; cursor: pointer; }
 .tl-hour-line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--gray-300); pointer-events: none; }
 .tl-half-line { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--gray-300); pointer-events: none; }
 .tl-hour-label {
@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r30'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r31'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -6359,6 +6359,29 @@ function _onTlCheck(taskId) {
     openCompletionModal(taskId);
   }
 }
+function _onTlGridClick(e) {
+  if (_tlRecentDrag) return;
+  if (e.target.closest('.timeline-task')) return;
+  // .gcal-event は pointer-events:none のため closest() では弾けない → bounding rect で判定
+  for (const ev of document.querySelectorAll('.gcal-event')) {
+    const r = ev.getBoundingClientRect();
+    if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return;
+  }
+  const rect  = e.currentTarget.getBoundingClientRect();
+  const relY  = e.clientY - rect.top;
+  const TL_S  = 7, PX = 75;
+  const rawM  = TL_S * 60 + (relY / PX) * 60;
+  const snapM = Math.round(rawM / 15) * 15;
+  const startM = Math.max(TL_S * 60, Math.min(22 * 60, snapM));
+  const sh = Math.floor(startM / 60), sm = startM % 60;
+  openNewTaskModal();
+  // _qaDate を変えず em-date をタイムライン表示日で上書き（日付チップの状態を保持）
+  const _tlDateEl = document.getElementById('em-date');
+  const _tlSdEl   = document.getElementById('em-someday');
+  if (_tlDateEl && _tlSdEl) { _tlSdEl.checked = false; _tlDateEl.disabled = false; _tlDateEl.value = heroAnchorDate; }
+  _setTimePair('em-start-h', 'em-start-m', `${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}`);
+  _recalcEndTime();
+}
 const TL_DRAG_DELAY   = 300;
 const TL_START_M      = 7 * 60;
 const TL_END_M        = 23 * 60;
@@ -6385,6 +6408,11 @@ function attachTimelineDragListeners() {
     card._tlUnschedBound = true;
     card.addEventListener('pointerdown', _onUnschedPointerDown, { passive: false });
   });
+  const grid = document.querySelector('.timeline-grid');
+  if (grid && !grid._tlGridClickBound) {
+    grid._tlGridClickBound = true;
+    grid.addEventListener('click', _onTlGridClick);
+  }
 }
 
 function _onTlPointerDown(e) {
