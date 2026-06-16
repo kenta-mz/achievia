@@ -361,6 +361,18 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 .task-flash { animation: task-flash 1s ease; }
 .timeline-task:hover { filter: brightness(1.12); }
 .timeline-task.done { opacity: 0.4; }
+.tl-check-btn {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1.5px solid rgba(0,0,0,.28); background: rgba(255,255,255,.75);
+  cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center;
+  transition: background .15s, border-color .15s; z-index: 3; touch-action: manipulation;
+  flex-shrink: 0;
+}
+.tl-check-btn:hover { background: #fff; border-color: rgba(0,0,0,.5); }
+.tl-check-btn.done { background: var(--green-500); border-color: var(--green-500); }
+.tl-check-btn svg { display: none; width: 8px; height: 8px; }
+.tl-check-btn.done svg { display: block; }
 .timeline-now-line {
   position: absolute; left: 0; right: 0; height: 2px;
   background: #ef4444; z-index: 2; pointer-events: none;
@@ -1831,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r29'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r30'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2854,9 +2866,12 @@ function renderTimeline(d) {
     return `<div class="timeline-task${done ? ' done' : ''}" data-id="${task.id}"
       style="${style};padding:${pad};background:${bgColor};color:${textColor};border:1.5px solid ${bdColor};--tl-handle-color:${bdColor}"
       onclick="_onTlTaskClick(event,'${task.id}')">
-      <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(task.title)}</div>
+      <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:18px">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
       ${showAll ? timeLine : (!showSub ? timeLine : (proj ? '' : timeLine))}
+      <button class="tl-check-btn${done ? ' done' : ''}" onclick="event.stopPropagation();_onTlCheck('${task.id}')" title="${done ? '完了を取り消す' : '完了にする'}">
+        <svg viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><polyline points="2,5 4,7.5 8,2.5"/></svg>
+      </button>
       ${h >= 28 ? `<div class="tl-resize-top-handle" data-top-resize-id="${task.id}" style="--tl-handle-h:${handleH}px"></div>` : ''}
       <div class="tl-resize-handle" data-resize-id="${task.id}" style="--tl-handle-h:${handleH}px"></div>
     </div>`;
@@ -6335,6 +6350,15 @@ function _onTlUnschedTaskClick(e, taskId) {
   if (_tlRecentDrag) return;
   openEditModal(taskId, 'timeline');
 }
+function _onTlCheck(taskId) {
+  const t = D().tasks.find(x => x.id === taskId); if (!t) return;
+  if (t.status === 'completed') {
+    t.status = 'pending'; t.completedAt = null; t.actualHours = null;
+    commit();
+  } else {
+    openCompletionModal(taskId);
+  }
+}
 const TL_DRAG_DELAY   = 300;
 const TL_START_M      = 7 * 60;
 const TL_END_M        = 23 * 60;
@@ -6365,7 +6389,8 @@ function attachTimelineDragListeners() {
 
 function _onTlPointerDown(e) {
   if (e.target.classList.contains('tl-resize-handle') ||
-      e.target.classList.contains('tl-resize-top-handle')) return;
+      e.target.classList.contains('tl-resize-top-handle') ||
+      e.target.closest('.tl-check-btn')) return;
   if (e.button !== 0 && e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
 
   const card   = e.currentTarget;
