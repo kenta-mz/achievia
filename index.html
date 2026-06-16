@@ -1831,7 +1831,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r23'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r24'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2305,8 +2305,8 @@ function renderHero() {
     </div>
     ${viewMode !== 'timeline' ? `
     <div class="hero-hours-row">
-      <span class="hero-hours-big">${_fmtH(doneH)}h</span>
-      <span class="hero-hours-total">/ ${_fmtH(totalH)}h</span>
+      <span class="hero-hours-big">${_fmtH(doneH)}</span>
+      <span class="hero-hours-total">/ ${_fmtH(totalH)}</span>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <div class="progress-bar" style="flex:1;margin-bottom:0"><div class="progress-fill" style="width:${pct}%"></div></div>
@@ -2595,10 +2595,10 @@ function taskRow(task, d) {
   const hoursBadge = isUnscheduled
     ? `<button class="tag-hours" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">${task.estimatedHours || 0}h</button>`
     : effectiveDone
-    ? `<span class="tag-hours" style="cursor:default;color:var(--green-600)">${partialOnDate > 0 ? _fmtH(partialOnDate) : _fmtH(slotH)}h</span>`
+    ? `<span class="tag-hours" style="cursor:default;color:var(--green-600)">${partialOnDate > 0 ? _fmtH(partialOnDate) : _fmtH(slotH)}</span>`
     : partialOnDate > 0
-    ? `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()" style="color:var(--amber-500)">${_fmtH(partialOnDate)}h / ${_fmtH(slotH)}h</button>`
-    : `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()">${_fmtH(slotH)}h</button>`;
+    ? `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()" style="color:var(--amber-500)">${_fmtH(partialOnDate)} / ${_fmtH(slotH)}</button>`
+    : `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()">${_fmtH(slotH)}</button>`;
   // ステータスバッジ（いつかやる欄・showStatus:false の作業種類は非表示、完了時は「● 完了」を表示）
   const wtShowStatus = wt ? (wt.showStatus !== false) : true;
   const statusLabel = { pending: '未着手', in_progress: '進行中', waiting: '待ち', completed: '完了' };
@@ -2946,13 +2946,13 @@ function renderMultiDay() {
       const [y,m,dd] = e.date.split('-').map(Number);
       const dayW = wd[new Date(y, m-1, dd).getDay()];
       const label = `${m}/${dd}（${dayW}）`;
-      const actualStr = actual !== null ? `${_fmtH(actual)}h` : '—h';
+      const actualStr = actual !== null ? `${_fmtH(actual)}` : '—';
       return `<div class="multiday-day-row">
         <span class="task-check${slotChecked?' done':''}" style="width:16px;height:16px;min-width:16px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;pointer-events:none">
           <svg viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><path d="M2 5l2.5 2.5L8 3"/></svg>
         </span>
         <span class="multiday-day-date">${label}</span>
-        <span class="multiday-day-hours">${actualStr}/${_fmtH(e.hours)}h</span>
+        <span class="multiday-day-hours">${actualStr}/${_fmtH(e.hours)}</span>
       </div>`;
     }).join('');
 
@@ -3277,12 +3277,12 @@ function renderCalendar() {
     const dayTasks = d.tasks.filter(x => x.scheduledDate === dateStr && x.type !== 'divider').sort((a,b)=>(a.order||0)-(b.order||0));
     const review = (d.reviews||[]).find(r => r.date === dateStr);
     gridHtml = `<div class="cal-day-view">
-      ${review ? `<div class="cal-day-review">★ ${review.score}/100 &nbsp;${review.scoreLabel}&nbsp;&nbsp;稼働 ${_fmtH(review.actualHours)}h${review.reviewMemo ? `<div class="cal-day-memo">${esc(review.reviewMemo)}</div>` : ''}</div>` : ''}
+      ${review ? `<div class="cal-day-review">★ ${review.score}/100 &nbsp;${review.scoreLabel}&nbsp;&nbsp;稼働 ${_fmtH(review.actualHours)}${review.reviewMemo ? `<div class="cal-day-memo">${esc(review.reviewMemo)}</div>` : ''}</div>` : ''}
       ${dayTasks.length ? dayTasks.map(task => `
         <div class="cal-day-task">
           <span class="cal-day-task-status">${task.status==='completed'?'✅':'○'}</span>
           <span class="cal-day-task-title">${esc(task.title)}</span>
-          <span class="cal-day-task-h">${task.actualHours ? _fmtH(task.actualHours)+'h' : _fmtH(task.estimatedHours||1)+'h'}</span>
+          <span class="cal-day-task-h">${task.actualHours ? _fmtH(task.actualHours) : _fmtH(task.estimatedHours||1)}</span>
         </div>`).join('')
       : `<div style="color:var(--gray-400);font-size:13px;padding:16px;text-align:center">タスクなし</div>`}
     </div>`;
@@ -3371,12 +3371,12 @@ function openDayDetail(dateStr) {
       <span style="color:var(--green-500);flex-shrink:0">${t.status==='completed'?'✅':'○'}</span>
       <span style="flex:1">${esc(t.title)}</span>
       ${proj ? `<span style="font-size:10px;padding:1px 6px;border-radius:100px;background:${proj.color}20;color:${proj.color};font-weight:600">${esc(proj.name)}</span>` : ''}
-      <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${t.actualHours ? _fmtH(t.actualHours)+'h' : _fmtH(t.estimatedHours||1)+'h'}</span>
+      <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${t.actualHours ? _fmtH(t.actualHours) : _fmtH(t.estimatedHours||1)}</span>
     </div>`;
   };
 
   const statsHtml = `<div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">
-    合計 ${_fmtH(totalH)}h &nbsp;·&nbsp; 完了 ${done.length}/${tasks.length}件${review ? ` &nbsp;·&nbsp; ★ ${review.score}/100` : ''}
+    合計 ${_fmtH(totalH)} &nbsp;·&nbsp; 完了 ${done.length}/${tasks.length}件${review ? ` &nbsp;·&nbsp; ★ ${review.score}/100` : ''}
   </div>`;
 
   const doneHtml  = done.length  ? `<div style="font-size:11px;font-weight:600;color:var(--gray-400);margin:8px 0 4px">✓ 完了（${done.length}件）</div>${done.map(taskLine).join('')}`  : '';
@@ -4107,7 +4107,12 @@ let _reviewDate = null;
 let _reviewMemo  = '';
 let _reviewStep  = 1;
 
-function _fmtH(h) { return String(parseFloat(h.toFixed(2))); } // 1.0→"1"  1.5→"1.5"  1.17→"1.17"
+function _fmtH(h) {
+  const m = Math.round(h * 60), hh = Math.floor(m / 60), mm = m % 60;
+  if (hh === 0) return `${mm}m`;
+  if (mm === 0) return `${hh}h`;
+  return `${hh}h${mm}m`;
+} // 0→"0m"  0.5→"30m"  1→"1h"  1.5→"1h30m"  7.75→"7h45m"
 
 function checkReview() {
   const d = D(); const yest = yesterdayStr(); const t = todayStr();
@@ -4142,7 +4147,7 @@ function _renderReviewStep1() {
     <div class="review-task-row">
       <span class="review-check" style="color:var(--green-500)">✓</span>
       <span class="review-title done">${esc(t.title)}</span>
-      <span class="review-hours">${_fmtH(t.actualHours ?? t.estimatedHours)}h</span>
+      <span class="review-hours">${_fmtH(t.actualHours ?? t.estimatedHours)}</span>
     </div>`).join('');
 
   const pendingRows = pending.map(t => `
@@ -4164,7 +4169,7 @@ function _renderReviewStep1() {
       <div class="modal">
         <div class="modal-header">
           <span class="modal-title">${dl} の振り返り</span>
-          <span style="font-size:12px;color:var(--gray-500)">合計労働時間 ${_fmtH(doneActualH)}h</span>
+          <span style="font-size:12px;color:var(--gray-500)">合計労働時間 ${_fmtH(doneActualH)}</span>
         </div>
         <div class="modal-body">
           <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">完了済みタスクの確認 &amp; 未完了タスクの処理</div>
@@ -4252,7 +4257,7 @@ function _renderReviewStep2() {
   const wd    = ['日','月','火','水','木','金','土'][dt.getDay()];
   const dl    = `${dt.getMonth()+1}/${dt.getDate()}（${wd}）`;
   const diffH = sc.actualH - sc.baseH;
-  const diffStr = (diffH >= 0 ? '+' : '') + _fmtH(diffH) + 'h';
+  const diffStr = (diffH >= 0 ? '+' : '-') + _fmtH(Math.abs(diffH));
   const pctStr  = Math.round(sc.predAccuracy * 100) + '%';
 
   const taskRows = sc.doneTasks.map(t => {
@@ -4262,7 +4267,7 @@ function _renderReviewStep2() {
     return `
       <div class="score-task-row">
         <span class="score-task-title">${esc(t.title)}</span>
-        <span class="score-task-hours">${_fmtH(a)}h / ${_fmtH(e)}h</span>
+        <span class="score-task-hours">${_fmtH(a)} / ${_fmtH(e)}</span>
         <span class="score-task-comment">${comment}</span>
       </div>`;
   }).join('');
@@ -4286,8 +4291,8 @@ function _renderReviewStep2() {
               <div class="score-metric-label">完了率 ${Math.round(sc.completionRate*100)}%</div>
             </div>
             <div class="score-metric">
-              <div class="score-metric-value">${_fmtH(sc.actualH)}h</div>
-              <div class="score-metric-label">作業（${diffStr} vs ${_fmtH(sc.baseH)}h）</div>
+              <div class="score-metric-value">${_fmtH(sc.actualH)}</div>
+              <div class="score-metric-label">作業（${diffStr} vs ${_fmtH(sc.baseH)}）</div>
             </div>
             <div class="score-metric">
               <div class="score-metric-value">${pctStr}</div>
@@ -4344,13 +4349,13 @@ function _renderReviewStep3() {
   if (todayCount === 0) {
     advice = '今日のタスクがまだ登録されていません。新しいタスクを追加してみましょう。';
   } else if (diff > 2) {
-    advice = `💡 今日のタスク量（${_fmtH(todayH)}h）は基準の${_fmtH(baseH)}hよりかなり多めです。優先度を確認してみては？`;
+    advice = `💡 今日のタスク量（${_fmtH(todayH)}）は基準の${_fmtH(baseH)}よりかなり多めです。優先度を確認してみては？`;
   } else if (diff > 0.5) {
-    advice = `💡 今日のタスク量（${_fmtH(todayH)}h）は基準の${_fmtH(baseH)}hより少し多めです。無理せず進みましょう。`;
+    advice = `💡 今日のタスク量（${_fmtH(todayH)}）は基準の${_fmtH(baseH)}より少し多めです。無理せず進みましょう。`;
   } else if (diff < -2) {
-    advice = `💡 今日のタスク量（${_fmtH(todayH)}h）は基準の${_fmtH(baseH)}hより少なめです。余裕があれば追加してみては？`;
+    advice = `💡 今日のタスク量（${_fmtH(todayH)}）は基準の${_fmtH(baseH)}より少なめです。余裕があれば追加してみては？`;
   } else {
-    advice = `💡 今日のタスク量（${_fmtH(todayH)}h）は基準（${_fmtH(baseH)}h）に近く、良いペースです。`;
+    advice = `💡 今日のタスク量（${_fmtH(todayH)}）は基準（${_fmtH(baseH)}）に近く、良いペースです。`;
   }
 
   document.getElementById('review-modal').innerHTML = `
@@ -4364,11 +4369,11 @@ function _renderReviewStep3() {
           <div class="plan-advice">${advice}</div>
           <div class="plan-metrics">
             <div class="plan-metric">
-              <div class="plan-metric-value">${_fmtH(todayH)}h / ${todayCount}件</div>
+              <div class="plan-metric-value">${_fmtH(todayH)} / ${todayCount}件</div>
               <div class="plan-metric-sub">今日の予定</div>
             </div>
             <div class="plan-metric">
-              <div class="plan-metric-value">${_fmtH(baseH)}h / ${_fmtH(baseCount)}件</div>
+              <div class="plan-metric-value">${_fmtH(baseH)} / ${parseFloat(baseCount.toFixed(1))}件</div>
               <div class="plan-metric-sub">基準（過去${past30.length > 0 ? past30.length : 0}日）</div>
             </div>
           </div>
