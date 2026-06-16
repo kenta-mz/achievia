@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r31'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r32'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -6484,9 +6484,12 @@ function _doStartTlDrag(ev, card, taskId) {
     _tlDropUnschedZone = document.createElement('div');
     _tlDropUnschedZone.className = 'tl-drop-unsched-zone';
     _tlDropUnschedZone.textContent = '時刻未設定に戻す';
-    const container = document.querySelector('#task-list > div');
-    if (container) container.insertBefore(_tlDropUnschedZone, container.firstChild);
-    else _tlDropUnschedZone = null;
+    const listCard = document.querySelector('#task-list-card');
+    if (listCard) {
+      const r = listCard.getBoundingClientRect();
+      _tlDropUnschedZone.style.cssText = `position:fixed;top:${r.top+8}px;left:${r.left+8}px;width:${r.width-16}px;margin:0;z-index:20`;
+      document.body.appendChild(_tlDropUnschedZone);
+    } else _tlDropUnschedZone = null;
   }
 
   document.body.classList.add('touch-dragging');
@@ -7169,9 +7172,12 @@ function _doStartSomedayDrag(ev, card, taskId) {
     _somedayDropUnschedZone = document.createElement('div');
     _somedayDropUnschedZone.className = 'tl-drop-unsched-zone';
     _somedayDropUnschedZone.textContent = '時刻未設定に戻す';
-    const wrap = document.querySelector('.timeline-wrap');
-    if (wrap && wrap.parentNode) wrap.parentNode.insertBefore(_somedayDropUnschedZone, wrap);
-    else _somedayDropUnschedZone = null;
+    const card2 = document.querySelector('#task-list-card');
+    if (card2) {
+      const r2 = card2.getBoundingClientRect();
+      _somedayDropUnschedZone.style.cssText = `position:fixed;top:${r2.top+8}px;left:${r2.left+8}px;width:${r2.width-16}px;margin:0;z-index:20`;
+      document.body.appendChild(_somedayDropUnschedZone);
+    } else _somedayDropUnschedZone = null;
   }
 
   document.body.classList.add('touch-dragging');
@@ -7227,6 +7233,22 @@ function _onSomedayPointerUp(e) {
   clearTimeout(_somedayDragTimer);
   if (!_somedayDragging) { _cleanupSomedayDrag(e.currentTarget); return; }
   _somedayRecentDrag = true; setTimeout(() => { _somedayRecentDrag = false; }, 400);
+
+  // noTime=0 の動的生成ゾーン（position:fixed）はグリッドと重なる。pointer-events:none のため
+  // elementFromPoint がグリッドを返してしまい、グリッド優先チェックが誤発火するのを防ぐ。
+  // .timeline-unscheduled（noTime>0）はグリッドと重ならないため通常フローで処理する。
+  if (_somedayDropUnschedZone && !_somedayDropUnschedZone.classList.contains('timeline-unscheduled')) {
+    const zRect = _somedayDropUnschedZone.getBoundingClientRect();
+    if (e.clientX >= zRect.left && e.clientX <= zRect.right &&
+        e.clientY >= zRect.top  && e.clientY <= zRect.bottom) {
+      const d    = D();
+      const task = d.tasks.find(x => x.id === _somedayDragTaskId);
+      if (task) { task.scheduledDate = heroAnchorDate; task.startTime = null; task.endTime = null; }
+      _cleanupSomedayDrag(e.currentTarget);
+      if (task) commit();
+      return;
+    }
+  }
 
   const gridEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.timeline-grid') || null;
   const rawM   = gridEl ? _tlYToRawMinutes(e.clientX, e.clientY) : NaN;
