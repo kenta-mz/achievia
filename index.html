@@ -402,6 +402,7 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
   outline: 2px dashed rgba(99, 102, 241, 0.6); outline-offset: 2px;
   background: rgba(99, 102, 241, 0.08); border-radius: 8px;
 }
+.timeline-unscheduled.tl-no-tasks:not(.active) { visibility: hidden; }
 
 /* ── Notes Panel ── */
 .notes-panel {
@@ -1843,7 +1844,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r32'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r33'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2896,14 +2897,14 @@ function renderTimeline(d) {
   }).join('');
 
   return `<div style="padding:12px">
-    ${noTime.length ? `
-    <div class="timeline-unscheduled${unschedCol ? ' collapsed' : ''}" style="margin-top:0;border-top:none;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:12px;padding-top:0">
+    <div class="timeline-unscheduled${noTime.length ? (unschedCol ? ' collapsed' : '') : ' tl-no-tasks'}" style="margin-top:0;border-top:none;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:12px;padding-top:0">
+      ${noTime.length ? `
       <div class="timeline-unscheduled-title" onclick="toggleSec('_tlUnsched')">
         <span class="section-toggle ${unschedCol ? 'closed' : ''}">▼</span>
         <span>時刻未設定 (${noTime.length}件)</span>
       </div>
-      ${unschedCol ? '' : unschedCards}
-    </div>` : ''}
+      ${unschedCol ? '' : unschedCards}` : `<div class="timeline-unscheduled-title">時刻未設定に戻す</div>`}
+    </div>
     <div class="timeline-wrap">
       <div class="timeline-grid">
         ${[...hours, TL_END].map(h => {
@@ -6481,15 +6482,7 @@ function _doStartTlDrag(ev, card, taskId) {
     _tlDropUnschedZone = unschedEl;
     unschedEl.classList.add('active');
   } else {
-    _tlDropUnschedZone = document.createElement('div');
-    _tlDropUnschedZone.className = 'tl-drop-unsched-zone';
-    _tlDropUnschedZone.textContent = '時刻未設定に戻す';
-    const listCard = document.querySelector('#task-list-card');
-    if (listCard) {
-      const r = listCard.getBoundingClientRect();
-      _tlDropUnschedZone.style.cssText = `position:fixed;top:${r.top+8}px;left:${r.left+8}px;width:${r.width-16}px;margin:0;z-index:20`;
-      document.body.appendChild(_tlDropUnschedZone);
-    } else _tlDropUnschedZone = null;
+    _tlDropUnschedZone = null; // .timeline-unscheduled は常にレンダリング済みのためここには到達しない
   }
 
   document.body.classList.add('touch-dragging');
@@ -7169,15 +7162,7 @@ function _doStartSomedayDrag(ev, card, taskId) {
     _somedayDropUnschedZone = unschedEl;
     unschedEl.classList.add('active');
   } else {
-    _somedayDropUnschedZone = document.createElement('div');
-    _somedayDropUnschedZone.className = 'tl-drop-unsched-zone';
-    _somedayDropUnschedZone.textContent = '時刻未設定に戻す';
-    const card2 = document.querySelector('#task-list-card');
-    if (card2) {
-      const r2 = card2.getBoundingClientRect();
-      _somedayDropUnschedZone.style.cssText = `position:fixed;top:${r2.top+8}px;left:${r2.left+8}px;width:${r2.width-16}px;margin:0;z-index:20`;
-      document.body.appendChild(_somedayDropUnschedZone);
-    } else _somedayDropUnschedZone = null;
+    _somedayDropUnschedZone = null; // .timeline-unscheduled は常にレンダリング済みのためここには到達しない
   }
 
   document.body.classList.add('touch-dragging');
@@ -7218,14 +7203,15 @@ function _onSomedayPointerMove(e) {
     }
   }
 
-  // グリッド外の場合、時刻未設定ゾーンとの交差判定（X/Y両軸）でハイライトを更新する
-  if (!gridEl && _somedayDropUnschedZone) {
+  // 時刻未設定ゾーンハイライト: getBoundingClientRect() ベースで判定（elementFromPoint 不使用）
+  // visibility:hidden 要素はブラウザのヒットテストから除外されるため、
+  // elementFromPoint に頼るとゾーンが非表示のときグリッドを返してしまう。
+  // bounding rect は visibility に関わらず正確な座標を返すため、常にこちらで判定する。
+  if (_somedayDropUnschedZone) {
     const zRect = _somedayDropUnschedZone.getBoundingClientRect();
     const overZone = e.clientX >= zRect.left && e.clientX <= zRect.right &&
                      e.clientY >= zRect.top  && e.clientY <= zRect.bottom;
     _somedayDropUnschedZone.classList.toggle('active', overZone);
-  } else if (gridEl && _somedayDropUnschedZone) {
-    _somedayDropUnschedZone.classList.remove('active');
   }
 }
 
@@ -7234,28 +7220,32 @@ function _onSomedayPointerUp(e) {
   if (!_somedayDragging) { _cleanupSomedayDrag(e.currentTarget); return; }
   _somedayRecentDrag = true; setTimeout(() => { _somedayRecentDrag = false; }, 400);
 
-  // noTime=0 の動的生成ゾーン（position:fixed）はグリッドと重なる。pointer-events:none のため
-  // elementFromPoint がグリッドを返してしまい、グリッド優先チェックが誤発火するのを防ぐ。
-  // .timeline-unscheduled（noTime>0）はグリッドと重ならないため通常フローで処理する。
-  if (_somedayDropUnschedZone && !_somedayDropUnschedZone.classList.contains('timeline-unscheduled')) {
+  // ①ゾーン先行判定（bounding rect ベース）: visibility:hidden 要素は elementFromPoint
+  // のヒットテストから除外されるため、ゾーンが非表示の状態でもポインター座標と
+  // bounding rect を比較することで確実にドロップを検出する。
+  // ゾーンは sticky で常にグリッドの上に表示されるため、ゾーン座標 = グリッドより優先。
+  if (_somedayDropUnschedZone) {
     const zRect = _somedayDropUnschedZone.getBoundingClientRect();
-    if (e.clientX >= zRect.left && e.clientX <= zRect.right &&
-        e.clientY >= zRect.top  && e.clientY <= zRect.bottom) {
+    const overZone = e.clientX >= zRect.left && e.clientX <= zRect.right &&
+                     e.clientY >= zRect.top  && e.clientY <= zRect.bottom;
+    if (overZone) {
       const d    = D();
       const task = d.tasks.find(x => x.id === _somedayDragTaskId);
-      if (task) { task.scheduledDate = heroAnchorDate; task.startTime = null; task.endTime = null; }
+      if (task) {
+        task.scheduledDate = heroAnchorDate;
+        task.startTime     = null;
+        task.endTime       = null;
+      }
       _cleanupSomedayDrag(e.currentTarget);
       if (task) commit();
       return;
     }
   }
 
+  // ②グリッド判定: ゾーン外に落とした場合のみ到達
   const gridEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.timeline-grid') || null;
   const rawM   = gridEl ? _tlYToRawMinutes(e.clientX, e.clientY) : NaN;
 
-  // ゾーン優先順位（機能2）：①グリッド内最優先 → ②時刻未設定ゾーン → ③何もしない
-  // 「具体的な時刻へのスケジュール（グリッド内ドロップ）」が主要ユースケースであり、
-  // 時刻未設定化は副次的なため、グリッド内判定を優先する（機能Dとは非対称・意図的）
   if (gridEl && !isNaN(rawM) && rawM >= TL_START_M && rawM < TL_END_M) {
     const snapM        = Math.round(rawM / 15) * 15;
     const durM         = _somedayDragDurM;
@@ -7275,25 +7265,7 @@ function _onSomedayPointerUp(e) {
     return;
   }
 
-  // グリッド内でない場合、時刻未設定ゾーンとの交差判定（X/Y両軸）
-  if (_somedayDropUnschedZone) {
-    const zRect = _somedayDropUnschedZone.getBoundingClientRect();
-    const overZone = e.clientX >= zRect.left && e.clientX <= zRect.right &&
-                     e.clientY >= zRect.top  && e.clientY <= zRect.bottom;
-    if (overZone) {
-      const d    = D();
-      const task = d.tasks.find(x => x.id === _somedayDragTaskId);
-      if (task) {
-        task.scheduledDate = heroAnchorDate;
-        task.startTime     = null;
-        task.endTime       = null;
-      }
-      _cleanupSomedayDrag(e.currentTarget);
-      if (task) commit();
-      return;
-    }
-  }
-  // どちらでもない → 変更なしでクリーンアップのみ
+  // ③どちらでもない → 変更なしでクリーンアップのみ
   _cleanupSomedayDrag(e.currentTarget);
 }
 
