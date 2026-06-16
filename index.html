@@ -1831,7 +1831,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r26'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-16-r27'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2841,8 +2841,8 @@ function renderTimeline(d) {
     const textColor = proj ? proj.color        : 'var(--gray-700)';
     const bdColor   = proj ? _tlPastelize(proj.color, 0.4)  : 'var(--gray-400)';
     const timeLabel = task.startTime
-      ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${task.estimatedHours}h`
-      : `${task.estimatedHours}h`;
+      ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${_fmtH(task.estimatedHours)}`
+      : `${_fmtH(task.estimatedHours)}`;
     const handleH = Math.max(6, Math.min(12, Math.floor(h / 4)));
     const pad    = h < 40 ? '2px 6px' : '5px 8px';
     const showSub = h >= 44;  // プロジェクト名 or 時刻ラベルを表示するか
@@ -5855,6 +5855,12 @@ function saveEditModal() {
   task.notes         = document.getElementById('em-notes')?.value     || '';
   task.startTime = _readTimePair('em-start-h','em-start-m');
   task.endTime   = (() => { const _s=task.startTime,_e=_readTimePair('em-end-h','em-end-m'); if(!_s||!_e)return _e; const toM=t=>{const[h,m]=t.split(':').map(Number);return h*60+m;}; return toM(_e)>toM(_s)?_e:null; })();
+  // 開始・終了時刻が両方設定されている場合は実際の時間差を estimatedHours に反映
+  if (_emMode2 !== 'daily' && task.startTime && task.endTime) {
+    const _toM = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+    const _diff = _toM(task.endTime) - _toM(task.startTime);
+    if (_diff > 0) task.estimatedHours = _diff / 60;
+  }
   const newStatus = document.getElementById('em-status')?.value;
   if (newStatus && task.status !== 'completed') task.status = newStatus;
 
