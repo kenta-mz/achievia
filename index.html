@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-18-r36'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-18-r37'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -1905,8 +1905,8 @@ function toggleSlotComplete(taskId, slotIdx) {
     task.completedSlots = task.completedSlots.filter(i => i !== slotIdx);
     commit();
   } else {
-    const slotDate = (task.estimatedHoursByDate || [])[slotIdx]?.date;
-    if (slotDate) openSlotCompleteModal(taskId, slotDate, slotIdx);
+    if (!task.completedSlots.includes(slotIdx)) task.completedSlots.push(slotIdx);
+    commit();
   }
 }
 
@@ -6153,7 +6153,7 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
   if (!container) return;
   const rowCount = container.querySelectorAll('[data-em-date]').length;
   const row = document.createElement('div');
-  row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap';
+  row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:nowrap;overflow-x:auto;min-width:0';
   row.dataset.emDate = dateStr;
   const _stP = startTime ? startTime.split(':').map(Number) : null;
   const _etP = endTime   ? endTime.split(':').map(Number)   : null;
@@ -6176,12 +6176,22 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
 function _onEmEbdStartHChange(sel) {
   const idx  = sel.id.replace('em-ebd-start-h-', '');
   const mSel = document.getElementById(`em-ebd-start-m-${idx}`);
-  if (mSel) mSel.disabled = (sel.value === '');
+  if (mSel) {
+    const wasDisabled = mSel.disabled;
+    mSel.disabled = (sel.value === '');
+    if (wasDisabled && !mSel.disabled) mSel.value = '0';
+  }
+  _updateEmHoursSum();
 }
 function _onEmEbdEndHChange(sel) {
   const idx  = sel.id.replace('em-ebd-end-h-', '');
   const mSel = document.getElementById(`em-ebd-end-m-${idx}`);
-  if (mSel) mSel.disabled = (sel.value === '');
+  if (mSel) {
+    const wasDisabled = mSel.disabled;
+    mSel.disabled = (sel.value === '');
+    if (wasDisabled && !mSel.disabled) mSel.value = '0';
+  }
+  _updateEmHoursSum();
 }
 
 function addEmHoursDate() {
