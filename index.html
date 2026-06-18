@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-18-r38'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-18-r39'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5502,7 +5502,7 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
       const _etRaw = _effectiveEnd   || _calcEndTimeVal(_effectiveStart, _effectiveHours);
       const _etP   = _etRaw ? _etRaw.split(':').map(Number) : null;
       const _isDaily = task.estimatedHoursMode === 'daily';
-      return `<div class="em-grid" style="margin-top:12px">
+      return `<div id="em-task-time-section" class="em-grid" style="margin-top:12px${_isDaily?' display:none':''}">
       <div class="em-field" style="margin:0">
         <label>開始時刻</label>
         <div style="display:flex;align-items:center;gap:4px">
@@ -5514,9 +5514,9 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
       <div class="em-field" style="margin:0">
         <label>終了時刻</label>
         <div style="display:flex;align-items:center;gap:4px">
-          <select id="em-end-h" onchange="_onEmEndHChange()"${_isDaily?' disabled':''}>${_hourOpts(7,23,_etP?_etP[0]:null)}</select>
+          <select id="em-end-h" onchange="_onEmEndHChange()">${_hourOpts(7,23,_etP?_etP[0]:null)}</select>
           <span style="color:var(--gray-500)">:</span>
-          <select id="em-end-m" onchange="_onEmEndMChange()"${(_etP&&!_isDaily)?'':' disabled'}>${_minOpts(_etP?_etP[1]:null)}</select>
+          <select id="em-end-m" onchange="_onEmEndMChange()"${_etP?'':' disabled'}>${_minOpts(_etP?_etP[1]:null)}</select>
         </div>
       </div>
     </div>`;
@@ -5626,7 +5626,7 @@ function openNewTaskModal() {
       <label>予定時間</label>
       ${_buildEmHoursUI(null)}
     </div>
-    <div class="em-grid" style="margin-top:12px">
+    <div id="em-task-time-section" class="em-grid" style="margin-top:12px">
       <div class="em-field" style="margin:0">
         <label>開始時刻</label>
         <div style="display:flex;align-items:center;gap:4px">
@@ -6125,27 +6125,58 @@ function _emHoursSelectOpts(selected) {
 }
 
 function toggleEmHoursMode() {
-  const btn   = document.getElementById('em-hours-mode-btn');
-  const total = document.getElementById('em-hours-total');
-  const daily = document.getElementById('em-hours-daily');
+  const btn      = document.getElementById('em-hours-mode-btn');
+  const total    = document.getElementById('em-hours-total');
+  const daily    = document.getElementById('em-hours-daily');
+  const timeSection = document.getElementById('em-task-time-section');
   if (!btn || !total || !daily) return;
   const isDaily = total.style.display === 'none';
   if (isDaily) {
-    // switch to total
+    // switch to total — 日別1行目の時刻をタスクレベルに反映
+    const firstRow = daily.querySelector('[data-em-date]');
+    if (firstRow) {
+      const sh = firstRow.querySelector('[id^="em-ebd-start-h-"]')?.value;
+      const sm = firstRow.querySelector('[id^="em-ebd-start-m-"]')?.value;
+      const eh = firstRow.querySelector('[id^="em-ebd-end-h-"]')?.value;
+      const em = firstRow.querySelector('[id^="em-ebd-end-m-"]')?.value;
+      if (sh) _setTimePair('em-start-h', 'em-start-m', `${String(Number(sh)).padStart(2,'0')}:${String(Number(sm||0)).padStart(2,'0')}`);
+      if (eh) _setTimePair('em-end-h',   'em-end-m',   `${String(Number(eh)).padStart(2,'0')}:${String(Number(em||0)).padStart(2,'0')}`);
+    }
     total.style.display = '';
     daily.style.display = 'none';
     btn.textContent = '日別で入力 ▼';
+    if (timeSection) timeSection.style.display = '';
   } else {
-    // switch to daily — seed with today if empty
+    // switch to daily — タスクレベルの時刻を日別1行目に反映
     if (!daily.querySelector('[data-em-date]')) {
       _addEmHoursDateRow(todayStr(), 1);
     }
     total.style.display = 'none';
     daily.style.display = '';
     btn.textContent = '合計で入力 ▼';
+    if (timeSection) timeSection.style.display = 'none';
+    // タスクレベルの時刻を日別1行目にコピー
+    const firstRow = daily.querySelector('[data-em-date]');
+    if (firstRow) {
+      const taskStartH = document.getElementById('em-start-h')?.value;
+      const taskStartM = document.getElementById('em-start-m')?.value;
+      const taskEndH   = document.getElementById('em-end-h')?.value;
+      const taskEndM   = document.getElementById('em-end-m')?.value;
+      const ebdStartH = firstRow.querySelector('[id^="em-ebd-start-h-"]');
+      const ebdStartM = firstRow.querySelector('[id^="em-ebd-start-m-"]');
+      const ebdEndH   = firstRow.querySelector('[id^="em-ebd-end-h-"]');
+      const ebdEndM   = firstRow.querySelector('[id^="em-ebd-end-m-"]');
+      if (taskStartH && ebdStartH) {
+        ebdStartH.value = taskStartH;
+        if (ebdStartM) { ebdStartM.disabled = false; if (taskStartM) ebdStartM.value = taskStartM; }
+      }
+      if (taskEndH && ebdEndH) {
+        ebdEndH.value = taskEndH;
+        if (ebdEndM) { ebdEndM.disabled = false; if (taskEndM) ebdEndM.value = taskEndM; }
+      }
+      _recalcEbdRowHours(firstRow);
+    }
   }
-  const _isDaily2 = total.style.display === 'none';
-  ['em-end-h','em-end-m'].forEach(id => { const el=document.getElementById(id); if(el) el.disabled=_isDaily2; });
   _updateEmHoursSum();
 }
 
@@ -6168,14 +6199,29 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
       <span style="font-size:11px;color:var(--gray-500)">開始</span>
       <select id="em-ebd-start-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdStartHChange(this)">${_hourOpts(6, 22, _stP ? _stP[0] : null)}</select>
       <span style="font-size:11px;color:var(--gray-400)">:</span>
-      <select id="em-ebd-start-m-${rowCount}" style="font-size:12px;width:46px"${_stP ? '' : ' disabled'}>${_minOpts(_stP ? _stP[1] : null)}</select>
+      <select id="em-ebd-start-m-${rowCount}" style="font-size:12px;width:46px"${_stP ? '' : ' disabled'} onchange="_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_stP ? _stP[1] : null)}</select>
       <span style="font-size:11px;color:var(--gray-500)">終了</span>
       <select id="em-ebd-end-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdEndHChange(this)">${_hourOpts(6, 23, _etP ? _etP[0] : null)}</select>
       <span style="font-size:11px;color:var(--gray-400)">:</span>
-      <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'}>${_minOpts(_etP ? _etP[1] : null)}</select>
+      <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'} onchange="_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_etP ? _etP[1] : null)}</select>
     </div>
   `;
   container.appendChild(row);
+}
+
+function _recalcEbdRowHours(row) {
+  if (!row) return;
+  const startHEl = row.querySelector('[id^="em-ebd-start-h-"]');
+  const startMEl = row.querySelector('[id^="em-ebd-start-m-"]');
+  const endHEl   = row.querySelector('[id^="em-ebd-end-h-"]');
+  const endMEl   = row.querySelector('[id^="em-ebd-end-m-"]');
+  if (!startHEl?.value || !endHEl?.value) return;
+  const startM = Number(startHEl.value) * 60 + Number(startMEl?.value || 0);
+  const endM   = Number(endHEl.value)   * 60 + Number(endMEl?.value   || 0);
+  const diffH  = (endM - startM) / 60;
+  if (diffH <= 0) return;
+  const hoursEl = row.querySelector('select'); // 最初のselectがhours
+  if (hoursEl) hoursEl.value = String(Math.round(diffH * 4) / 4); // 0.25h単位に丸め
 }
 
 function _onEmEbdStartHChange(sel) {
@@ -6186,6 +6232,7 @@ function _onEmEbdStartHChange(sel) {
     mSel.disabled = (sel.value === '');
     if (wasDisabled && !mSel.disabled) mSel.value = '0';
   }
+  _recalcEbdRowHours(sel.closest('[data-em-date]'));
   _updateEmHoursSum();
 }
 function _onEmEbdEndHChange(sel) {
@@ -6196,6 +6243,7 @@ function _onEmEbdEndHChange(sel) {
     mSel.disabled = (sel.value === '');
     if (wasDisabled && !mSel.disabled) mSel.value = '0';
   }
+  _recalcEbdRowHours(sel.closest('[data-em-date]'));
   _updateEmHoursSum();
 }
 
