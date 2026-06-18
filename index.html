@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-18-r44'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-18-r45'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -6283,13 +6283,13 @@ function _buildEmHoursUI(task, timeOpts) {
     <div id="em-hours-total" style="${mode==='daily'?'display:none':''}">
       <div id="em-task-time-section" style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
         <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">開始</span>
-        <select id="em-start-h" onchange="_onEmStartHChange()">${_hourOpts(7,22,stP?stP[0]:null)}</select>
-        <span style="color:var(--gray-500)">:</span>
-        <select id="em-start-m" onchange="_onEmStartMChange()"${stP?'':' disabled'}>${_minOpts(stP?stP[1]:null)}</select>
+        <select id="em-start-h" style="font-size:12px;width:52px" onchange="_onEmStartHChange()">${_hourOpts(7,22,stP?stP[0]:null)}</select>
+        <span style="font-size:11px;color:var(--gray-400)">:</span>
+        <select id="em-start-m" style="font-size:12px;width:46px" onchange="_onEmStartMChange()"${stP?'':' disabled'}>${_minOpts(stP?stP[1]:null)}</select>
         <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;margin-left:4px">終了</span>
-        <select id="em-end-h" onchange="_onEmEndHChange()">${_hourOpts(7,23,etP?etP[0]:null)}</select>
-        <span style="color:var(--gray-500)">:</span>
-        <select id="em-end-m" onchange="_onEmEndMChange()"${etP?'':' disabled'}>${_minOpts(etP?etP[1]:null)}</select>
+        <select id="em-end-h" style="font-size:12px;width:52px" onchange="_onEmEndHChange()">${_hourOpts(7,23,etP?etP[0]:null)}</select>
+        <span style="font-size:11px;color:var(--gray-400)">:</span>
+        <select id="em-end-m" style="font-size:12px;width:46px" onchange="_onEmEndMChange()"${etP?'':' disabled'}>${_minOpts(etP?etP[1]:null)}</select>
       </div>
     </div>
     <div id="em-hours-daily" style="${mode==='total'?'display:none':''}">
