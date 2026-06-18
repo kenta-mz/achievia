@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-18-r40'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-18-r41'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5477,7 +5477,13 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
       <label>タイトル *</label>
       <input type="text" id="em-title" value="${esc(task.title)}">
     </div>
-    <div class="em-field">
+    <div style="margin-top:6px;margin-bottom:4px">
+      <button type="button" id="em-hours-mode-btn" onclick="toggleEmHoursMode()"
+        style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:6px;background:var(--gray-50);cursor:pointer;white-space:nowrap">
+        ${(task.estimatedHoursMode||'total')==='daily' ? '合計で入力 ▼' : '日別で入力 ▼'}
+      </button>
+    </div>
+    <div class="em-field" id="em-scheduled-date-row">
       <label>予定日</label>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <input type="date" id="em-date" value="${task.scheduledDate||''}" style="flex:1;min-width:100px" ${!task.scheduledDate?'disabled':''}>
@@ -5594,7 +5600,13 @@ function openNewTaskModal() {
       <label>タイトル *</label>
       <input type="text" id="em-title" value="${esc(_qsNewTitle||'')}">
     </div>
-    <div class="em-field">
+    <div style="margin-top:6px;margin-bottom:4px">
+      <button type="button" id="em-hours-mode-btn" onclick="toggleEmHoursMode()"
+        style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:6px;background:var(--gray-50);cursor:pointer;white-space:nowrap">
+        日別で入力 ▼
+      </button>
+    </div>
+    <div class="em-field" id="em-scheduled-date-row">
       <label>予定日</label>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <input type="date" id="em-date" value="${isSomeday?'':defaultDate}" style="flex:1;min-width:100px" ${isSomeday?'disabled':''}>
@@ -6094,6 +6106,7 @@ function toggleEmHoursMode() {
   const daily    = document.getElementById('em-hours-daily');
   if (!btn || !total || !daily) return;
   const isDaily = total.style.display === 'none';
+  const scheduledDateRow = document.getElementById('em-scheduled-date-row');
   if (isDaily) {
     // switch to total — 日別1行目の時刻をタスクレベルに反映
     const firstRow = daily.querySelector('[data-em-date]');
@@ -6108,6 +6121,7 @@ function toggleEmHoursMode() {
     total.style.display = '';
     daily.style.display = 'none';
     btn.textContent = '日別で入力 ▼';
+    if (scheduledDateRow) scheduledDateRow.style.display = '';
   } else {
     // switch to daily — タスクレベルの時刻を日別1行目に反映
     if (!daily.querySelector('[data-em-date]')) {
@@ -6116,6 +6130,7 @@ function toggleEmHoursMode() {
     total.style.display = 'none';
     daily.style.display = '';
     btn.textContent = '合計で入力 ▼';
+    if (scheduledDateRow) scheduledDateRow.style.display = 'none';
     // タスクレベルの時刻を日別1行目にコピー
     const firstRow = daily.querySelector('[data-em-date]');
     if (firstRow) {
@@ -6151,8 +6166,9 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
   const _stP = startTime ? startTime.split(':').map(Number) : null;
   const _etP = endTime   ? endTime.split(':').map(Number)   : null;
   row.innerHTML = `
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;flex-wrap:nowrap">
       <input type="date" value="${dateStr}" style="flex:1;min-width:90px;font-size:12px" onchange="this.closest('[data-em-date]').dataset.emDate=this.value;_updateEmHoursSum()">
+      <select class="em-ebd-hours-sel" style="width:70px;font-size:12px;flex-shrink:0" onchange="_updateEmHoursSum()">${_emHoursSelectOpts(hours)}</select>
       <button type="button" onclick="this.closest('[data-em-date]').remove();_updateEmHoursSum()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:14px;padding:0 2px;flex-shrink:0">×</button>
     </div>
     <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
@@ -6164,7 +6180,6 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
       <select id="em-ebd-end-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdEndHChange(this)">${_hourOpts(6, 23, _etP ? _etP[0] : null)}</select>
       <span style="font-size:11px;color:var(--gray-400)">:</span>
       <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'} onchange="_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_etP ? _etP[1] : null)}</select>
-      <select class="em-ebd-hours-sel" style="width:70px;font-size:12px;margin-left:4px" onchange="_updateEmHoursSum()">${_emHoursSelectOpts(hours)}</select>
     </div>
   `;
   container.appendChild(row);
@@ -6260,12 +6275,6 @@ function _buildEmHoursUI(task, timeOpts) {
   const stP = timeOpts?.stP ?? null;
   const etP = timeOpts?.etP ?? null;
   return `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <button type="button" id="em-hours-mode-btn" onclick="toggleEmHoursMode()"
-        style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:6px;background:var(--gray-50);cursor:pointer;white-space:nowrap">
-        ${mode==='daily' ? '合計で入力 ▼' : '日別で入力 ▼'}
-      </button>
-    </div>
     <div id="em-hours-total" style="${mode==='daily'?'display:none':''}">
       <div id="em-task-time-section" style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
         <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">開始</span>
@@ -6290,8 +6299,12 @@ function _buildEmHoursUI(task, timeOpts) {
 function _initEmHoursDailyRows(task) {
   if ((task?.estimatedHoursMode || 'total') !== 'daily') return;
   const dates = task?.estimatedHoursByDate || [];
-  if (dates.length === 0) { _addEmHoursDateRow(todayStr(), 1); return; }
-  dates.forEach(p => _addEmHoursDateRow(p.date, p.hours, p.startTime ?? null, p.endTime ?? null));
+  if (dates.length === 0) { _addEmHoursDateRow(todayStr(), 1); } else {
+    dates.forEach(p => _addEmHoursDateRow(p.date, p.hours, p.startTime ?? null, p.endTime ?? null));
+  }
+  // 日別モード初期表示時は予定日行を非表示
+  const scheduledDateRow = document.getElementById('em-scheduled-date-row');
+  if (scheduledDateRow) scheduledDateRow.style.display = 'none';
 }
 
 // ============================================================
