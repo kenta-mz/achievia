@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-16-r34'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-18-r35'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2755,17 +2755,48 @@ function renderTimeline(d) {
   const TL_START = 7, TL_END = 23, PX = 75;
   const toM = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 
-  const todayTasks = d.tasks.filter(x => x.scheduledDate === t && x.type !== 'divider');
-  const withTime   = todayTasks.filter(x => x.startTime).sort((a, b) => a.startTime.localeCompare(b.startTime) || a.order - b.order);
-  const noTime     = todayTasks.filter(x => !x.startTime).sort((a, b) => a.order - b.order);
+  // 分割タスク（estimatedHoursByDate >= 2件）は今日付きのスロットを展開
+  const todayRaw = d.tasks.filter(x => x.type !== 'divider' && x.status !== 'cancelled');
+  const todaySlots = [];
+  todayRaw.forEach(task => {
+    const ebd = task.estimatedHoursByDate;
+    if (Array.isArray(ebd) && ebd.length >= 2 && task.status !== 'completed') {
+      ebd.forEach((entry, idx) => {
+        if (entry.date !== t) return;
+        todaySlots.push(Object.assign({}, task, {
+          _slotIdx:       idx,
+          _slotTotal:     ebd.length,
+          _slotHours:     entry.hours,
+          _slotDate:      entry.date,
+          _slotStartTime: entry.startTime ?? null,
+          _slotEndTime:   entry.endTime   ?? null,
+        }));
+      });
+    } else if (task.scheduledDate === t) {
+      todaySlots.push(task);
+    }
+  });
+  const withTime = todaySlots
+    .filter(x => (x._slotStartTime ?? x.startTime))
+    .sort((a, b) => {
+      const as = a._slotStartTime ?? a.startTime;
+      const bs = b._slotStartTime ?? b.startTime;
+      return as.localeCompare(bs) || a.order - b.order;
+    });
+  const noTime = todaySlots
+    .filter(x => !(x._slotStartTime ?? x.startTime))
+    .sort((a, b) => a.order - b.order);
 
   // Greedy column assignment + overlap-aware width/left calculation
   function calcLayout(tasks) {
     const items = tasks.map(task => {
-      const startM = toM(task.startTime);
-      const endM   = task.endTime
-        ? Math.max(toM(task.endTime), startM + 15)
-        : startM + Math.max(Math.round((task.estimatedHours || 0.5) * 60), 15);
+      const effStart = task._slotStartTime ?? task.startTime;
+      const effEnd   = task._slotEndTime   ?? task.endTime;
+      const effHours = task._slotHours     ?? task.estimatedHours;
+      const startM = toM(effStart);
+      const endM   = effEnd
+        ? Math.max(toM(effEnd), startM + 15)
+        : startM + Math.max(Math.round((effHours || 0.5) * 60), 15);
       return { task, startM, endM, col: 0 };
     });
     // 視覚的な下端（px）で列割り当て：min-height 28px を考慮し隣接短タスクを別列へ
@@ -2852,9 +2883,15 @@ function renderTimeline(d) {
     const bgColor   = proj ? _tlPastelize(proj.color, 0.78) : 'var(--gray-200)';
     const textColor = proj ? proj.color        : 'var(--gray-700)';
     const bdColor   = proj ? _tlPastelize(proj.color, 0.4)  : 'var(--gray-400)';
-    const timeLabel = task.startTime
-      ? (task.endTime ? `${task.startTime}–${task.endTime}` : `${task.startTime}`) + ` · ${_fmtH(task.estimatedHours)}`
-      : `${_fmtH(task.estimatedHours)}`;
+    const effStart = task._slotStartTime ?? task.startTime;
+    const effEnd   = task._slotEndTime   ?? task.endTime;
+    const effHours = task._slotHours     ?? task.estimatedHours;
+    const slotBadge = (task._slotIdx != null)
+      ? ` [${task._slotIdx + 1}/${task._slotTotal}]`
+      : '';
+    const timeLabel = effStart
+      ? (effEnd ? `${effStart}–${effEnd}` : `${effStart}`) + ` · ${_fmtH(effHours)}${slotBadge}`
+      : `${_fmtH(effHours)}${slotBadge}`;
     const handleH = Math.max(6, Math.min(12, Math.floor(h / 4)));
     const pad    = h < 40 ? '2px 6px' : '5px 8px';
     const showSub = h >= 44;  // プロジェクト名 or 時刻ラベルを表示するか
@@ -2865,15 +2902,15 @@ function renderTimeline(d) {
     const timeLine = `<div style="font-size:10px;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${timeLabel}</div>`;
     return `<div class="timeline-task${done ? ' done' : ''}" data-id="${task.id}"
       style="${style};padding:${pad};background:${bgColor};color:${textColor};border:1.5px solid ${bdColor};--tl-handle-color:${bdColor}"
-      onclick="_onTlTaskClick(event,'${task.id}')">
+      onclick="_onTlTaskClick(event,'${task.id}'${task._slotIdx != null ? `,${task._slotIdx}` : ''})">
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:18px">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
       ${showAll ? timeLine : (!showSub ? timeLine : (proj ? '' : timeLine))}
       <button class="tl-check-btn${done ? ' done' : ''}" onclick="event.stopPropagation();_onTlCheck('${task.id}')" title="${done ? '完了を取り消す' : '完了にする'}">
         <svg viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><polyline points="2,5 4,7.5 8,2.5"/></svg>
       </button>
-      ${h >= 28 ? `<div class="tl-resize-top-handle" data-top-resize-id="${task.id}" style="--tl-handle-h:${handleH}px"></div>` : ''}
-      <div class="tl-resize-handle" data-resize-id="${task.id}" style="--tl-handle-h:${handleH}px"></div>
+      ${(h >= 28 && task._slotIdx == null) ? `<div class="tl-resize-top-handle" data-top-resize-id="${task.id}" style="--tl-handle-h:${handleH}px"></div>` : ''}
+      ${task._slotIdx == null ? `<div class="tl-resize-handle" data-resize-id="${task.id}" style="--tl-handle-h:${handleH}px"></div>` : ''}
     </div>`;
   }
 
@@ -5398,10 +5435,12 @@ function showMoreRecurring() {
 let _editModalId = null;
 let _editModalType = 'task'; // 'task' | 'recurring-template'
 let _emSourceView = 'list'; // 'list' | 'timeline'
+let _editModalSlotIdx = -1; // タイムラインのスロットインデックス（-1 = 非スロット編集）
 
-function openEditModal(id, sourceView = 'list') {
+function openEditModal(id, sourceView = 'list', slotIdx = -1) {
   _editModalId = id;
   _emSourceView = sourceView;
+  _editModalSlotIdx = Number(slotIdx);
   const d = D();
   const task = d.tasks.find(t => t.id === id);
   if (!task) return;
@@ -5452,9 +5491,15 @@ function openEditModal(id, sourceView = 'list') {
       ${(() => { const p = _predictHoursData(task.title); return p ? `<div style="font-size:11px;color:var(--pri-400);margin-top:3px">☆ 過去${p.count}件：平均 ${p.avg}h</div>` : ''; })()}
     </div>
     ${(() => {
-      const _stP = task.startTime ? task.startTime.split(':').map(Number) : null;
-      const _etRaw = task.endTime || _calcEndTimeVal(task.startTime, task.estimatedHours);
-      const _etP = _etRaw ? _etRaw.split(':').map(Number) : null;
+      const _slotEntry = (_editModalSlotIdx >= 0 && Array.isArray(task.estimatedHoursByDate))
+        ? task.estimatedHoursByDate[_editModalSlotIdx]
+        : null;
+      const _effectiveStart = _slotEntry?.startTime ?? task.startTime;
+      const _effectiveEnd   = _slotEntry?.endTime   ?? task.endTime;
+      const _effectiveHours = _slotEntry?.hours      ?? task.estimatedHours;
+      const _stP   = _effectiveStart ? _effectiveStart.split(':').map(Number) : null;
+      const _etRaw = _effectiveEnd   || _calcEndTimeVal(_effectiveStart, _effectiveHours);
+      const _etP   = _etRaw ? _etRaw.split(':').map(Number) : null;
       const _isDaily = task.estimatedHoursMode === 'daily';
       return `<div class="em-grid" style="margin-top:12px">
       <div class="em-field" style="margin:0">
@@ -5654,6 +5699,8 @@ function openNewTaskModal() {
 
 function closeEditModal() {
   _editModalId = null;
+  _editModalSlotIdx = -1;
+  _emSourceView = 'list';
   _editModalType = 'task';
   _qsNewTitle = '';
   document.getElementById('task-edit-modal').style.display = 'none';
@@ -6091,18 +6138,40 @@ function toggleEmHoursMode() {
   _updateEmHoursSum();
 }
 
-function _addEmHoursDateRow(dateStr, hours) {
+function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
   const container = document.getElementById('em-hours-daily-rows');
   if (!container) return;
+  const rowCount = container.querySelectorAll('[data-em-date]').length;
   const row = document.createElement('div');
-  row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px';
+  row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap';
   row.dataset.emDate = dateStr;
+  const _stP = startTime ? startTime.split(':').map(Number) : null;
+  const _etP = endTime   ? endTime.split(':').map(Number)   : null;
   row.innerHTML = `
-    <input type="date" value="${dateStr}" style="flex:1;font-size:12px" onchange="this.closest('[data-em-date]').dataset.emDate=this.value;_updateEmHoursSum()">
+    <input type="date" value="${dateStr}" style="flex:1;min-width:90px;font-size:12px" onchange="this.closest('[data-em-date]').dataset.emDate=this.value;_updateEmHoursSum()">
     <select style="width:70px;font-size:12px" onchange="_updateEmHoursSum()">${_emHoursSelectOpts(hours)}</select>
+    <span style="font-size:11px;color:var(--gray-500)">開始</span>
+    <select id="em-ebd-start-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdStartHChange(this)">${_hourOpts(6, 22, _stP ? _stP[0] : null)}</select>
+    <span style="font-size:11px;color:var(--gray-400)">:</span>
+    <select id="em-ebd-start-m-${rowCount}" style="font-size:12px;width:46px"${_stP ? '' : ' disabled'}>${_minOpts(_stP ? _stP[1] : null)}</select>
+    <span style="font-size:11px;color:var(--gray-500)">終了</span>
+    <select id="em-ebd-end-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdEndHChange(this)">${_hourOpts(6, 23, _etP ? _etP[0] : null)}</select>
+    <span style="font-size:11px;color:var(--gray-400)">:</span>
+    <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'}>${_minOpts(_etP ? _etP[1] : null)}</select>
     <button type="button" onclick="this.closest('[data-em-date]').remove();_updateEmHoursSum()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:14px;padding:0 2px">×</button>
   `;
   container.appendChild(row);
+}
+
+function _onEmEbdStartHChange(sel) {
+  const idx  = sel.id.replace('em-ebd-start-h-', '');
+  const mSel = document.getElementById(`em-ebd-start-m-${idx}`);
+  if (mSel) mSel.disabled = (sel.value === '');
+}
+function _onEmEbdEndHChange(sel) {
+  const idx  = sel.id.replace('em-ebd-end-h-', '');
+  const mSel = document.getElementById(`em-ebd-end-m-${idx}`);
+  if (mSel) mSel.disabled = (sel.value === '');
 }
 
 function addEmHoursDate() {
@@ -6122,10 +6191,23 @@ function _updateEmHoursSum() {
 
 function _getEmHoursByDate() {
   const rows = document.querySelectorAll('#em-hours-daily-rows [data-em-date]');
-  return Array.from(rows).map(row => ({
-    date: row.dataset.emDate,
-    hours: parseFloat(row.querySelector('select')?.value || 0)
-  }));
+  return Array.from(rows).map(row => {
+    const hoursEl  = row.querySelector('select'); // 最初のselect = hours
+    const startHEl = row.querySelector('[id^="em-ebd-start-h-"]');
+    const startMEl = row.querySelector('[id^="em-ebd-start-m-"]');
+    const endHEl   = row.querySelector('[id^="em-ebd-end-h-"]');
+    const endMEl   = row.querySelector('[id^="em-ebd-end-m-"]');
+    const startTime = (startHEl?.value && startMEl && startMEl.value !== '')
+      ? `${startHEl.value}:${String(Number(startMEl.value)).padStart(2, '0')}` : null;
+    const endTime   = (endHEl?.value && endMEl && endMEl.value !== '')
+      ? `${endHEl.value}:${String(Number(endMEl.value)).padStart(2, '0')}` : null;
+    return {
+      date:  row.dataset.emDate,
+      hours: parseFloat(hoursEl?.value || 0),
+      startTime,
+      endTime
+    };
+  });
 }
 
 function _buildEmHoursUI(task) {
@@ -6155,7 +6237,7 @@ function _initEmHoursDailyRows(task) {
   if ((task?.estimatedHoursMode || 'total') !== 'daily') return;
   const dates = task?.estimatedHoursByDate || [];
   if (dates.length === 0) { _addEmHoursDateRow(todayStr(), 1); return; }
-  dates.forEach(p => _addEmHoursDateRow(p.date, p.hours));
+  dates.forEach(p => _addEmHoursDateRow(p.date, p.hours, p.startTime ?? null, p.endTime ?? null));
 }
 
 // ============================================================
@@ -6341,9 +6423,9 @@ let _tlPointerType    = '';
 let _tlRecentDrag     = false;
 let _tlDragGrabOffsetY = 0;
 
-function _onTlTaskClick(e, taskId) {
+function _onTlTaskClick(e, taskId, slotIdx = -1) {
   if (_tlRecentDrag) return;
-  openEditModal(taskId, 'timeline');
+  openEditModal(taskId, 'timeline', slotIdx);
 }
 function _onTlUnschedTaskClick(e, taskId) {
   if (_tlRecentDrag) return;
