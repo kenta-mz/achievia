@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-18-r37'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-18-r38'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -1905,8 +1905,9 @@ function toggleSlotComplete(taskId, slotIdx) {
     task.completedSlots = task.completedSlots.filter(i => i !== slotIdx);
     commit();
   } else {
-    if (!task.completedSlots.includes(slotIdx)) task.completedSlots.push(slotIdx);
-    commit();
+    // 未完了→完了: スロット単体の完了モーダルを開く
+    const slotDate = (task.estimatedHoursByDate || [])[slotIdx]?.date || todayStr();
+    openSlotCompleteModal(taskId, slotDate, slotIdx);
   }
 }
 
@@ -1931,8 +1932,8 @@ function openSlotCompleteModal(taskId, slotDate, slotIdx) {
           <div style="font-size:12px;color:var(--gray-500);margin-bottom:16px">${m}/${dd}（${wd}）の作業時間</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
             <div>
-              <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">実績 (h)</div>
-              <input type="number" id="slot-hours-input" class="no-spin" min="0" max="24" step="0.5" value="${current}"
+              <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">実績（分）</div>
+              <input type="number" id="slot-hours-input" class="no-spin" min="0" max="1440" step="1" value="${Math.round(current * 60)}"
                 style="width:100%;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:16px;font-weight:700;font-family:inherit;color:var(--ink);background:#fff;outline:none;text-align:center">
             </div>
             <div>
@@ -1944,7 +1945,7 @@ function openSlotCompleteModal(taskId, slotDate, slotIdx) {
           </div>
           <div style="font-size:11px;color:var(--gray-500);margin-bottom:8px">実績時間（クリックで変更）</div>
           <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px">
-            ${[0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<button onclick="document.getElementById('slot-hours-input').value=${v}" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-600);font-size:11px;cursor:pointer;font-family:inherit">${v}h</button>`).join('')}
+            ${[0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<button onclick="document.getElementById('slot-hours-input').value=${Math.round(v*60)}" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-600);font-size:11px;cursor:pointer;font-family:inherit">${v}h</button>`).join('')}
             <button onclick="document.getElementById('slot-hours-input').value=0" style="padding:3px 8px;border:1px solid var(--gray-200);border-radius:6px;background:#fff;color:var(--gray-400);font-size:11px;cursor:pointer;font-family:inherit">クリア</button>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -1960,7 +1961,7 @@ function openSlotCompleteModal(taskId, slotDate, slotIdx) {
 function saveSlotComplete(taskId, slotDate, slotIdx) {
   const inp = document.getElementById('slot-hours-input');
   const estSel = document.getElementById('slot-est-select');
-  const hours = parseFloat(inp.value) || 0;
+  const hours = (parseFloat(inp.value) || 0) / 60;
   const t = D().tasks.find(x => x.id === taskId); if (!t) return;
   // partialHours を slotIdx で更新（同日複数スロット対応）
   if (!t.partialHours) t.partialHours = [];
@@ -2906,7 +2907,7 @@ function renderTimeline(d) {
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:18px">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
       ${showAll ? timeLine : (!showSub ? timeLine : (proj ? '' : timeLine))}
-      <button class="tl-check-btn${done ? ' done' : ''}" onclick="event.stopPropagation();_onTlCheck('${task.id}')" title="${done ? '完了を取り消す' : '完了にする'}">
+      <button class="tl-check-btn${done ? ' done' : ''}" onclick="event.stopPropagation();${task._slotIdx != null ? `toggleSlotComplete('${task.id}',${task._slotIdx})` : `_onTlCheck('${task.id}')`}" title="${done ? '完了を取り消す' : '完了にする'}">
         <svg viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><polyline points="2,5 4,7.5 8,2.5"/></svg>
       </button>
       ${(h >= 28 && task._slotIdx == null) ? `<div class="tl-resize-top-handle" data-top-resize-id="${task.id}" style="--tl-handle-h:${handleH}px"></div>` : ''}
@@ -6153,22 +6154,26 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
   if (!container) return;
   const rowCount = container.querySelectorAll('[data-em-date]').length;
   const row = document.createElement('div');
-  row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:nowrap;overflow-x:auto;min-width:0';
+  row.style.cssText = 'margin-bottom:6px;min-width:0';
   row.dataset.emDate = dateStr;
   const _stP = startTime ? startTime.split(':').map(Number) : null;
   const _etP = endTime   ? endTime.split(':').map(Number)   : null;
   row.innerHTML = `
-    <input type="date" value="${dateStr}" style="flex:1;min-width:90px;font-size:12px" onchange="this.closest('[data-em-date]').dataset.emDate=this.value;_updateEmHoursSum()">
-    <select style="width:70px;font-size:12px" onchange="_updateEmHoursSum()">${_emHoursSelectOpts(hours)}</select>
-    <span style="font-size:11px;color:var(--gray-500)">開始</span>
-    <select id="em-ebd-start-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdStartHChange(this)">${_hourOpts(6, 22, _stP ? _stP[0] : null)}</select>
-    <span style="font-size:11px;color:var(--gray-400)">:</span>
-    <select id="em-ebd-start-m-${rowCount}" style="font-size:12px;width:46px"${_stP ? '' : ' disabled'}>${_minOpts(_stP ? _stP[1] : null)}</select>
-    <span style="font-size:11px;color:var(--gray-500)">終了</span>
-    <select id="em-ebd-end-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdEndHChange(this)">${_hourOpts(6, 23, _etP ? _etP[0] : null)}</select>
-    <span style="font-size:11px;color:var(--gray-400)">:</span>
-    <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'}>${_minOpts(_etP ? _etP[1] : null)}</select>
-    <button type="button" onclick="this.closest('[data-em-date]').remove();_updateEmHoursSum()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:14px;padding:0 2px">×</button>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+      <input type="date" value="${dateStr}" style="flex:1;min-width:90px;font-size:12px" onchange="this.closest('[data-em-date]').dataset.emDate=this.value;_updateEmHoursSum()">
+      <select style="width:70px;font-size:12px" onchange="_updateEmHoursSum()">${_emHoursSelectOpts(hours)}</select>
+      <button type="button" onclick="this.closest('[data-em-date]').remove();_updateEmHoursSum()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:14px;padding:0 2px;flex-shrink:0">×</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
+      <span style="font-size:11px;color:var(--gray-500)">開始</span>
+      <select id="em-ebd-start-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdStartHChange(this)">${_hourOpts(6, 22, _stP ? _stP[0] : null)}</select>
+      <span style="font-size:11px;color:var(--gray-400)">:</span>
+      <select id="em-ebd-start-m-${rowCount}" style="font-size:12px;width:46px"${_stP ? '' : ' disabled'}>${_minOpts(_stP ? _stP[1] : null)}</select>
+      <span style="font-size:11px;color:var(--gray-500)">終了</span>
+      <select id="em-ebd-end-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdEndHChange(this)">${_hourOpts(6, 23, _etP ? _etP[0] : null)}</select>
+      <span style="font-size:11px;color:var(--gray-400)">:</span>
+      <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'}>${_minOpts(_etP ? _etP[1] : null)}</select>
+    </div>
   `;
   container.appendChild(row);
 }
