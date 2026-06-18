@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-18-r45'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r46'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5484,17 +5484,15 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
       </button>
     </div>
     <div class="em-field" style="margin-top:8px">
-      <label>予定時間</label>
+      <label>作業予定</label>
       <div id="em-scheduled-date-row" style="margin-bottom:4px">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto">
-          <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">予定日</span>
+          <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">作業日</span>
           <input type="date" id="em-date" value="${task.scheduledDate||''}" style="flex:1;min-width:90px" ${!task.scheduledDate?'disabled':''}>
           <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--gray-600);white-space:nowrap">
             <input type="checkbox" id="em-someday" ${!task.scheduledDate?'checked':''} onchange="document.getElementById('em-date').disabled=this.checked">
             未定
           </label>
-          <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">時間</span>
-          <select id="em-hours" onchange="_onEmEstimatedHoursChange()" style="flex-shrink:0">${hOpts}</select>
         </div>
       </div>
       ${(() => {
@@ -5507,7 +5505,7 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
         const _stP   = _effectiveStart ? _effectiveStart.split(':').map(Number) : null;
         const _etRaw = _effectiveEnd   || _calcEndTimeVal(_effectiveStart, _effectiveHours);
         const _etP   = _etRaw ? _etRaw.split(':').map(Number) : null;
-        return _buildEmHoursUI(task, { stP: _stP, etP: _etP });
+        return _buildEmHoursUI(task, { stP: _stP, etP: _etP }, _effectiveHours);
       })()}
       ${(() => { const p = _predictHoursData(task.title); return p ? `<div style="font-size:11px;color:var(--pri-400);margin-top:3px">☆ 過去${p.count}件：平均 ${p.avg}h</div>` : ''; })()}
     </div>
@@ -5609,20 +5607,18 @@ function openNewTaskModal() {
       </button>
     </div>
     <div class="em-field" style="margin-top:8px">
-      <label>予定時間</label>
+      <label>作業予定</label>
       <div id="em-scheduled-date-row" style="margin-bottom:4px">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto">
-          <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">予定日</span>
+          <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">作業日</span>
           <input type="date" id="em-date" value="${isSomeday?'':defaultDate}" style="flex:1;min-width:90px" ${isSomeday?'disabled':''}>
           <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--gray-600);white-space:nowrap">
             <input type="checkbox" id="em-someday" ${isSomeday?'checked':''} onchange="document.getElementById('em-date').disabled=this.checked">
             未定
           </label>
-          <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">時間</span>
-          <select id="em-hours" onchange="_onEmEstimatedHoursChange()" style="flex-shrink:0">${hOpts}</select>
         </div>
       </div>
-      ${_buildEmHoursUI(null, { stP: null, etP: null })}
+      ${_buildEmHoursUI(null, { stP: null, etP: null }, 1)}
     </div>
     <div style="margin-top:12px">
       <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
@@ -6171,10 +6167,8 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
   const _etP = endTime   ? endTime.split(':').map(Number)   : null;
   row.innerHTML = `
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;flex-wrap:nowrap">
-      <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">予定日</span>
+      <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">作業日</span>
       <input type="date" value="${dateStr}" style="flex:1;min-width:90px;font-size:12px" onchange="this.closest('[data-em-date]').dataset.emDate=this.value;_updateEmHoursSum()">
-      <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">時間</span>
-      <select class="em-ebd-hours-sel" style="width:70px;font-size:12px;flex-shrink:0" onchange="_updateEmHoursSum()">${_emHoursSelectOpts(hours)}</select>
       <button type="button" onclick="this.closest('[data-em-date]').remove();_updateEmHoursSum()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:14px;padding:0 2px;flex-shrink:0">×</button>
     </div>
     <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
@@ -6186,6 +6180,8 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
       <select id="em-ebd-end-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdEndHChange(this)">${_hourOpts(6, 23, _etP ? _etP[0] : null)}</select>
       <span style="font-size:11px;color:var(--gray-400)">:</span>
       <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'} onchange="_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_etP ? _etP[1] : null)}</select>
+      <span style="font-size:11px;color:var(--gray-500);margin-left:4px">時間</span>
+      <select class="em-ebd-hours-sel" style="font-size:12px;flex-shrink:0" onchange="_updateEmHoursSum()">${_emHoursSelectOpts(hours)}</select>
     </div>
   `;
   container.appendChild(row);
@@ -6272,13 +6268,14 @@ function _getEmHoursByDate() {
   });
 }
 
-function _buildEmHoursUI(task, timeOpts) {
+function _buildEmHoursUI(task, timeOpts, hours) {
   const mode  = task?.estimatedHoursMode || 'total';
   const daily = task?.estimatedHoursByDate || [];
   const dailySum = daily.reduce((s, p) => s + p.hours, 0);
   // timeOpts: { stP, etP } — 開始/終了時刻の [h, m] 配列（null可）
   const stP = timeOpts?.stP ?? null;
   const etP = timeOpts?.etP ?? null;
+  const _h  = hours ?? task?.estimatedHours ?? 1;
   return `
     <div id="em-hours-total" style="${mode==='daily'?'display:none':''}">
       <div id="em-task-time-section" style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
@@ -6290,6 +6287,8 @@ function _buildEmHoursUI(task, timeOpts) {
         <select id="em-end-h" style="font-size:12px;width:52px" onchange="_onEmEndHChange()">${_hourOpts(7,23,etP?etP[0]:null)}</select>
         <span style="font-size:11px;color:var(--gray-400)">:</span>
         <select id="em-end-m" style="font-size:12px;width:46px" onchange="_onEmEndMChange()"${etP?'':' disabled'}>${_minOpts(etP?etP[1]:null)}</select>
+        <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;margin-left:4px">時間</span>
+        <select id="em-hours" style="font-size:12px;flex-shrink:0" onchange="_onEmEstimatedHoursChange()">${_emHoursSelectOpts(_h)}</select>
       </div>
     </div>
     <div id="em-hours-daily" style="${mode==='total'?'display:none':''}">
