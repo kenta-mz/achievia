@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-18-r39'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-18-r40'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2880,7 +2880,8 @@ function renderTimeline(d) {
 
   function tlCard(task, style, h) {
     const proj = d.projects.find(p => p.id === task.projectId);
-    const done = task.status === 'completed';
+    const done = task.status === 'completed' ||
+      (task._slotIdx != null && (task.completedSlots || []).includes(task._slotIdx));
     const bgColor   = proj ? _tlPastelize(proj.color, 0.78) : 'var(--gray-200)';
     const textColor = proj ? proj.color        : 'var(--gray-700)';
     const bdColor   = proj ? _tlPastelize(proj.color, 0.4)  : 'var(--gray-400)';
@@ -5488,39 +5489,20 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
     </div>
     <div class="em-field" style="margin-top:12px">
       <label>予定時間</label>
-      ${_buildEmHoursUI(task)}
+      ${(() => {
+        const _slotEntry = (_editModalSlotIdx >= 0 && Array.isArray(task.estimatedHoursByDate))
+          ? task.estimatedHoursByDate[_editModalSlotIdx]
+          : null;
+        const _effectiveStart = _slotEntry?.startTime ?? task.startTime;
+        const _effectiveEnd   = _slotEntry?.endTime   ?? task.endTime;
+        const _effectiveHours = _slotEntry?.hours      ?? task.estimatedHours;
+        const _stP   = _effectiveStart ? _effectiveStart.split(':').map(Number) : null;
+        const _etRaw = _effectiveEnd   || _calcEndTimeVal(_effectiveStart, _effectiveHours);
+        const _etP   = _etRaw ? _etRaw.split(':').map(Number) : null;
+        return _buildEmHoursUI(task, { stP: _stP, etP: _etP });
+      })()}
       ${(() => { const p = _predictHoursData(task.title); return p ? `<div style="font-size:11px;color:var(--pri-400);margin-top:3px">☆ 過去${p.count}件：平均 ${p.avg}h</div>` : ''; })()}
     </div>
-    ${(() => {
-      const _slotEntry = (_editModalSlotIdx >= 0 && Array.isArray(task.estimatedHoursByDate))
-        ? task.estimatedHoursByDate[_editModalSlotIdx]
-        : null;
-      const _effectiveStart = _slotEntry?.startTime ?? task.startTime;
-      const _effectiveEnd   = _slotEntry?.endTime   ?? task.endTime;
-      const _effectiveHours = _slotEntry?.hours      ?? task.estimatedHours;
-      const _stP   = _effectiveStart ? _effectiveStart.split(':').map(Number) : null;
-      const _etRaw = _effectiveEnd   || _calcEndTimeVal(_effectiveStart, _effectiveHours);
-      const _etP   = _etRaw ? _etRaw.split(':').map(Number) : null;
-      const _isDaily = task.estimatedHoursMode === 'daily';
-      return `<div id="em-task-time-section" class="em-grid" style="margin-top:12px${_isDaily?' display:none':''}">
-      <div class="em-field" style="margin:0">
-        <label>開始時刻</label>
-        <div style="display:flex;align-items:center;gap:4px">
-          <select id="em-start-h" onchange="_onEmStartHChange()">${_hourOpts(7,22,_stP?_stP[0]:null)}</select>
-          <span style="color:var(--gray-500)">:</span>
-          <select id="em-start-m" onchange="_onEmStartMChange()"${_stP?'':' disabled'}>${_minOpts(_stP?_stP[1]:null)}</select>
-        </div>
-      </div>
-      <div class="em-field" style="margin:0">
-        <label>終了時刻</label>
-        <div style="display:flex;align-items:center;gap:4px">
-          <select id="em-end-h" onchange="_onEmEndHChange()">${_hourOpts(7,23,_etP?_etP[0]:null)}</select>
-          <span style="color:var(--gray-500)">:</span>
-          <select id="em-end-m" onchange="_onEmEndMChange()"${_etP?'':' disabled'}>${_minOpts(_etP?_etP[1]:null)}</select>
-        </div>
-      </div>
-    </div>`;
-    })()}
     <div style="margin-top:12px">
       <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
         <input type="checkbox" id="em-recurring-toggle" ${hasRec?'checked':''} onchange="toggleEmRecurringUI()">
@@ -5624,25 +5606,7 @@ function openNewTaskModal() {
     </div>
     <div class="em-field" style="margin-top:12px">
       <label>予定時間</label>
-      ${_buildEmHoursUI(null)}
-    </div>
-    <div id="em-task-time-section" class="em-grid" style="margin-top:12px">
-      <div class="em-field" style="margin:0">
-        <label>開始時刻</label>
-        <div style="display:flex;align-items:center;gap:4px">
-          <select id="em-start-h" onchange="_onEmStartHChange()">${_hourOpts(7,22,null)}</select>
-          <span style="color:var(--gray-500)">:</span>
-          <select id="em-start-m" onchange="_onEmStartMChange()" disabled>${_minOpts(null)}</select>
-        </div>
-      </div>
-      <div class="em-field" style="margin:0">
-        <label>終了時刻</label>
-        <div style="display:flex;align-items:center;gap:4px">
-          <select id="em-end-h" onchange="_onEmEndHChange()">${_hourOpts(7,23,null)}</select>
-          <span style="color:var(--gray-500)">:</span>
-          <select id="em-end-m" onchange="_onEmEndMChange()" disabled>${_minOpts(null)}</select>
-        </div>
-      </div>
+      ${_buildEmHoursUI(null, { stP: null, etP: null })}
     </div>
     <div style="margin-top:12px">
       <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
@@ -6120,7 +6084,7 @@ function _onEmEstimatedHoursChange() {
 // ============================================================
 function _emHoursSelectOpts(selected) {
   return [0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(h =>
-    `<option value="${h}"${selected===h?' selected':''}>${h}</option>`
+    `<option value="${h}"${selected===h?' selected':''}>${_fmtH(h)}</option>`
   ).join('');
 }
 
@@ -6128,7 +6092,6 @@ function toggleEmHoursMode() {
   const btn      = document.getElementById('em-hours-mode-btn');
   const total    = document.getElementById('em-hours-total');
   const daily    = document.getElementById('em-hours-daily');
-  const timeSection = document.getElementById('em-task-time-section');
   if (!btn || !total || !daily) return;
   const isDaily = total.style.display === 'none';
   if (isDaily) {
@@ -6145,7 +6108,6 @@ function toggleEmHoursMode() {
     total.style.display = '';
     daily.style.display = 'none';
     btn.textContent = '日別で入力 ▼';
-    if (timeSection) timeSection.style.display = '';
   } else {
     // switch to daily — タスクレベルの時刻を日別1行目に反映
     if (!daily.querySelector('[data-em-date]')) {
@@ -6154,7 +6116,6 @@ function toggleEmHoursMode() {
     total.style.display = 'none';
     daily.style.display = '';
     btn.textContent = '合計で入力 ▼';
-    if (timeSection) timeSection.style.display = 'none';
     // タスクレベルの時刻を日別1行目にコピー
     const firstRow = daily.querySelector('[data-em-date]');
     if (firstRow) {
@@ -6192,7 +6153,6 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
   row.innerHTML = `
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
       <input type="date" value="${dateStr}" style="flex:1;min-width:90px;font-size:12px" onchange="this.closest('[data-em-date]').dataset.emDate=this.value;_updateEmHoursSum()">
-      <select style="width:70px;font-size:12px" onchange="_updateEmHoursSum()">${_emHoursSelectOpts(hours)}</select>
       <button type="button" onclick="this.closest('[data-em-date]').remove();_updateEmHoursSum()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:14px;padding:0 2px;flex-shrink:0">×</button>
     </div>
     <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
@@ -6204,10 +6164,13 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
       <select id="em-ebd-end-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdEndHChange(this)">${_hourOpts(6, 23, _etP ? _etP[0] : null)}</select>
       <span style="font-size:11px;color:var(--gray-400)">:</span>
       <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'} onchange="_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_etP ? _etP[1] : null)}</select>
+      <select class="em-ebd-hours-sel" style="width:70px;font-size:12px;margin-left:4px" onchange="_updateEmHoursSum()">${_emHoursSelectOpts(hours)}</select>
     </div>
   `;
   container.appendChild(row);
 }
+
+const _VALID_EBD_HOURS = [0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8];
 
 function _recalcEbdRowHours(row) {
   if (!row) return;
@@ -6220,8 +6183,13 @@ function _recalcEbdRowHours(row) {
   const endM   = Number(endHEl.value)   * 60 + Number(endMEl?.value   || 0);
   const diffH  = (endM - startM) / 60;
   if (diffH <= 0) return;
-  const hoursEl = row.querySelector('select'); // 最初のselectがhours
-  if (hoursEl) hoursEl.value = String(Math.round(diffH * 4) / 4); // 0.25h単位に丸め
+  const hoursEl = row.querySelector('.em-ebd-hours-sel');
+  if (hoursEl) {
+    const snapped = _VALID_EBD_HOURS.reduce((a, b) =>
+      Math.abs(b - diffH) < Math.abs(a - diffH) ? b : a
+    );
+    hoursEl.value = String(snapped);
+  }
 }
 
 function _onEmEbdStartHChange(sel) {
@@ -6255,7 +6223,7 @@ function addEmHoursDate() {
 function _updateEmHoursSum() {
   const rows = document.querySelectorAll('#em-hours-daily-rows [data-em-date]');
   const sum  = Array.from(rows).reduce((s, row) => {
-    const sel = row.querySelector('select');
+    const sel = row.querySelector('.em-ebd-hours-sel');
     return s + parseFloat(sel?.value || 0);
   }, 0);
   const sumEl = document.getElementById('em-hours-daily-sum');
@@ -6265,7 +6233,7 @@ function _updateEmHoursSum() {
 function _getEmHoursByDate() {
   const rows = document.querySelectorAll('#em-hours-daily-rows [data-em-date]');
   return Array.from(rows).map(row => {
-    const hoursEl  = row.querySelector('select'); // 最初のselect = hours
+    const hoursEl  = row.querySelector('.em-ebd-hours-sel');
     const startHEl = row.querySelector('[id^="em-ebd-start-h-"]');
     const startMEl = row.querySelector('[id^="em-ebd-start-m-"]');
     const endHEl   = row.querySelector('[id^="em-ebd-end-h-"]');
@@ -6283,11 +6251,14 @@ function _getEmHoursByDate() {
   });
 }
 
-function _buildEmHoursUI(task) {
+function _buildEmHoursUI(task, timeOpts) {
   const mode  = task?.estimatedHoursMode || 'total';
   const hOpts = _emHoursSelectOpts(task?.estimatedHours || 1);
   const daily = task?.estimatedHoursByDate || [];
   const dailySum = daily.reduce((s, p) => s + p.hours, 0);
+  // timeOpts: { stP, etP } — 開始/終了時刻の [h, m] 配列（null可）
+  const stP = timeOpts?.stP ?? null;
+  const etP = timeOpts?.etP ?? null;
   return `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <button type="button" id="em-hours-mode-btn" onclick="toggleEmHoursMode()"
@@ -6296,7 +6267,17 @@ function _buildEmHoursUI(task) {
       </button>
     </div>
     <div id="em-hours-total" style="${mode==='daily'?'display:none':''}">
-      <select id="em-hours" onchange="_onEmEstimatedHoursChange()">${hOpts}</select>
+      <div id="em-task-time-section" style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
+        <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">開始</span>
+        <select id="em-start-h" onchange="_onEmStartHChange()">${_hourOpts(7,22,stP?stP[0]:null)}</select>
+        <span style="color:var(--gray-500)">:</span>
+        <select id="em-start-m" onchange="_onEmStartMChange()"${stP?'':' disabled'}>${_minOpts(stP?stP[1]:null)}</select>
+        <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;margin-left:4px">終了</span>
+        <select id="em-end-h" onchange="_onEmEndHChange()">${_hourOpts(7,23,etP?etP[0]:null)}</select>
+        <span style="color:var(--gray-500)">:</span>
+        <select id="em-end-m" onchange="_onEmEndMChange()"${etP?'':' disabled'}>${_minOpts(etP?etP[1]:null)}</select>
+        <select id="em-hours" onchange="_onEmEstimatedHoursChange()" style="margin-left:6px">${hOpts}</select>
+      </div>
     </div>
     <div id="em-hours-daily" style="${mode==='total'?'display:none':''}">
       <div id="em-hours-daily-rows"></div>
