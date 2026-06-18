@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-18-r41'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-18-r42'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5491,6 +5491,7 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
           <input type="checkbox" id="em-someday" ${!task.scheduledDate?'checked':''} onchange="document.getElementById('em-date').disabled=this.checked">
           未定
         </label>
+        <select id="em-hours" onchange="_onEmEstimatedHoursChange()" style="flex-shrink:0">${hOpts}</select>
       </div>
     </div>
     <div class="em-field" style="margin-top:12px">
@@ -5614,6 +5615,7 @@ function openNewTaskModal() {
           <input type="checkbox" id="em-someday" ${isSomeday?'checked':''} onchange="document.getElementById('em-date').disabled=this.checked">
           未定
         </label>
+        <select id="em-hours" onchange="_onEmEstimatedHoursChange()" style="flex-shrink:0">${hOpts}</select>
       </div>
     </div>
     <div class="em-field" style="margin-top:12px">
@@ -6268,7 +6270,6 @@ function _getEmHoursByDate() {
 
 function _buildEmHoursUI(task, timeOpts) {
   const mode  = task?.estimatedHoursMode || 'total';
-  const hOpts = _emHoursSelectOpts(task?.estimatedHours || 1);
   const daily = task?.estimatedHoursByDate || [];
   const dailySum = daily.reduce((s, p) => s + p.hours, 0);
   // timeOpts: { stP, etP } — 開始/終了時刻の [h, m] 配列（null可）
@@ -6285,7 +6286,6 @@ function _buildEmHoursUI(task, timeOpts) {
         <select id="em-end-h" onchange="_onEmEndHChange()">${_hourOpts(7,23,etP?etP[0]:null)}</select>
         <span style="color:var(--gray-500)">:</span>
         <select id="em-end-m" onchange="_onEmEndMChange()"${etP?'':' disabled'}>${_minOpts(etP?etP[1]:null)}</select>
-        <select id="em-hours" onchange="_onEmEstimatedHoursChange()" style="margin-left:6px">${hOpts}</select>
       </div>
     </div>
     <div id="em-hours-daily" style="${mode==='total'?'display:none':''}">
