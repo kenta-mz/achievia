@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-18-r43'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-18-r44'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5483,20 +5483,20 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
         ${(task.estimatedHoursMode||'total')==='daily' ? '合計で入力 ▼' : '日別で入力 ▼'}
       </button>
     </div>
-    <div class="em-field" id="em-scheduled-date-row">
-      <label>予定日</label>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <input type="date" id="em-date" value="${task.scheduledDate||''}" style="flex:1;min-width:100px" ${!task.scheduledDate?'disabled':''}>
-        <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--gray-600);white-space:nowrap">
-          <input type="checkbox" id="em-someday" ${!task.scheduledDate?'checked':''} onchange="document.getElementById('em-date').disabled=this.checked">
-          未定
-        </label>
-        <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">作業予定時間</span>
-        <select id="em-hours" onchange="_onEmEstimatedHoursChange()" style="flex-shrink:0">${hOpts}</select>
-      </div>
-    </div>
-    <div class="em-field" style="margin-top:12px">
+    <div class="em-field" style="margin-top:8px">
       <label>予定時間</label>
+      <div id="em-scheduled-date-row" style="margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto">
+          <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">予定日</span>
+          <input type="date" id="em-date" value="${task.scheduledDate||''}" style="flex:1;min-width:90px" ${!task.scheduledDate?'disabled':''}>
+          <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--gray-600);white-space:nowrap">
+            <input type="checkbox" id="em-someday" ${!task.scheduledDate?'checked':''} onchange="document.getElementById('em-date').disabled=this.checked">
+            未定
+          </label>
+          <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">時間</span>
+          <select id="em-hours" onchange="_onEmEstimatedHoursChange()" style="flex-shrink:0">${hOpts}</select>
+        </div>
+      </div>
       ${(() => {
         const _slotEntry = (_editModalSlotIdx >= 0 && Array.isArray(task.estimatedHoursByDate))
           ? task.estimatedHoursByDate[_editModalSlotIdx]
@@ -5608,20 +5608,20 @@ function openNewTaskModal() {
         日別で入力 ▼
       </button>
     </div>
-    <div class="em-field" id="em-scheduled-date-row">
-      <label>予定日</label>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <input type="date" id="em-date" value="${isSomeday?'':defaultDate}" style="flex:1;min-width:100px" ${isSomeday?'disabled':''}>
-        <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--gray-600);white-space:nowrap">
-          <input type="checkbox" id="em-someday" ${isSomeday?'checked':''} onchange="document.getElementById('em-date').disabled=this.checked">
-          未定
-        </label>
-        <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">作業予定時間</span>
-        <select id="em-hours" onchange="_onEmEstimatedHoursChange()" style="flex-shrink:0">${hOpts}</select>
-      </div>
-    </div>
-    <div class="em-field" style="margin-top:12px">
+    <div class="em-field" style="margin-top:8px">
       <label>予定時間</label>
+      <div id="em-scheduled-date-row" style="margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto">
+          <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">予定日</span>
+          <input type="date" id="em-date" value="${isSomeday?'':defaultDate}" style="flex:1;min-width:90px" ${isSomeday?'disabled':''}>
+          <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--gray-600);white-space:nowrap">
+            <input type="checkbox" id="em-someday" ${isSomeday?'checked':''} onchange="document.getElementById('em-date').disabled=this.checked">
+            未定
+          </label>
+          <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">時間</span>
+          <select id="em-hours" onchange="_onEmEstimatedHoursChange()" style="flex-shrink:0">${hOpts}</select>
+        </div>
+      </div>
       ${_buildEmHoursUI(null, { stP: null, etP: null })}
     </div>
     <div style="margin-top:12px">
