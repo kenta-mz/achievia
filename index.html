@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-18-r35'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-18-r36'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5583,6 +5583,7 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
 
 function openNewTaskModal() {
   _editModalId = '__new__';
+  _editModalSlotIdx = -1;
   document.getElementById('em-timeline-actions').style.display = 'none';
   // Pre-fill title from quick-add input if present and _qsNewTitle not already set
   if (!_qsNewTitle) {
@@ -5707,6 +5708,7 @@ function closeEditModal() {
 }
 
 function openRecurringTemplateEdit(tmplId) {
+  _editModalSlotIdx = -1;
   const d = D();
   if (!d.recurringTemplates) d.recurringTemplates = [];
   const tmpl = d.recurringTemplates.find(t => t.id === tmplId);
@@ -5922,6 +5924,14 @@ function saveEditModal() {
   task.notes         = document.getElementById('em-notes')?.value     || '';
   task.startTime = _readTimePair('em-start-h','em-start-m');
   task.endTime   = (() => { const _s=task.startTime,_e=_readTimePair('em-end-h','em-end-m'); if(!_s||!_e)return _e; const toM=t=>{const[h,m]=t.split(':').map(Number);return h*60+m;}; return toM(_e)>toM(_s)?_e:null; })();
+  // スロット編集の場合は estimatedHoursByDate[idx] にも反映
+  if (_editModalSlotIdx >= 0 && Array.isArray(task.estimatedHoursByDate)) {
+    const _slot = task.estimatedHoursByDate[_editModalSlotIdx];
+    if (_slot) {
+      _slot.startTime = task.startTime;
+      _slot.endTime   = task.endTime;
+    }
+  }
   // 開始・終了時刻が両方設定されている場合は実際の時間差を estimatedHours に反映
   if (_emMode2 !== 'daily' && task.startTime && task.endTime) {
     const _toM = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
@@ -6198,9 +6208,9 @@ function _getEmHoursByDate() {
     const endHEl   = row.querySelector('[id^="em-ebd-end-h-"]');
     const endMEl   = row.querySelector('[id^="em-ebd-end-m-"]');
     const startTime = (startHEl?.value && startMEl && startMEl.value !== '')
-      ? `${startHEl.value}:${String(Number(startMEl.value)).padStart(2, '0')}` : null;
+      ? `${String(Number(startHEl.value)).padStart(2, '0')}:${String(Number(startMEl.value)).padStart(2, '0')}` : null;
     const endTime   = (endHEl?.value && endMEl && endMEl.value !== '')
-      ? `${endHEl.value}:${String(Number(endMEl.value)).padStart(2, '0')}` : null;
+      ? `${String(Number(endHEl.value)).padStart(2, '0')}:${String(Number(endMEl.value)).padStart(2, '0')}` : null;
     return {
       date:  row.dataset.emDate,
       hours: parseFloat(hoursEl?.value || 0),
