@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r46'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r47'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2930,7 +2930,7 @@ function renderTimeline(d) {
     return `<div class="timeline-unsched-task${done ? ' done' : ''}" data-id="${task.id}" onclick="_onTlUnschedTaskClick(event,'${task.id}')">
       <span style="font-size:12px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(task.title)}</span>
       ${proj ? `<span class="task-tag" style="background:${proj.color}22;color:${proj.color};flex-shrink:0">${esc(proj.name)}</span>` : ''}
-      <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${task.estimatedHours || '?'}h</span>
+      <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${_fmtH(task.estimatedHours || 0)}</span>
     </div>`;
   }).join('');
 
@@ -4186,34 +4186,54 @@ function openReview(date) {
 function _renderReviewStep1() {
   _reviewStep = 1;
   const date  = _reviewDate;
-  const tasks = D().tasks.filter(x => x.scheduledDate === date && x.type !== 'divider');
-  const done    = tasks.filter(t => t.status === 'completed');
-  const pending = tasks.filter(t => t.status !== 'completed');
-  const doneActualH = done.reduce((s,t) => s + (t.actualHours ?? t.estimatedHours ?? 0), 0);
+  const _isSplit  = t => Array.isArray(t.estimatedHoursByDate) && t.estimatedHoursByDate.length >= 2;
+  const _splitDone = t => {
+    const idxs = t.estimatedHoursByDate.map((e,i) => e.date === date ? i : -1).filter(i => i >= 0);
+    return idxs.length > 0 && idxs.every(i => (t.completedSlots || []).includes(i));
+  };
+  const _splitH = t => t.estimatedHoursByDate.filter(e => e.date === date).reduce((s,e) => s+e.hours, 0);
+
+  const tasks = D().tasks.filter(x => {
+    if (x.type === 'divider') return false;
+    if (_isSplit(x)) return x.estimatedHoursByDate.some(e => e.date === date);
+    return x.scheduledDate === date;
+  });
+  const done    = tasks.filter(t => t.status === 'completed' || (_isSplit(t) && _splitDone(t)));
+  const pending = tasks.filter(t => !done.includes(t));
+  const doneActualH = done.reduce((s,t) => {
+    if (_isSplit(t) && t.status !== 'completed') return s + _splitH(t);
+    return s + (t.actualHours ?? t.estimatedHours ?? 0);
+  }, 0);
   const dt = new Date(date + 'T00:00:00');
   const wd = ['日','月','火','水','木','金','土'][dt.getDay()];
   const dl = `${dt.getMonth()+1}/${dt.getDate()}（${wd}）`;
 
-  const doneRows = done.map(t => `
+  const doneRows = done.map(t => {
+    const dH = (_isSplit(t) && t.status !== 'completed') ? _splitH(t) : (t.actualHours ?? t.estimatedHours);
+    return `
     <div class="review-task-row">
       <span class="review-check" style="color:var(--green-500)">✓</span>
       <span class="review-title done">${esc(t.title)}</span>
-      <span class="review-hours">${_fmtH(t.actualHours ?? t.estimatedHours)}</span>
-    </div>`).join('');
+      <span class="review-hours">${_fmtH(dH)}</span>
+    </div>`;
+  }).join('');
 
-  const pendingRows = pending.map(t => `
+  const pendingRows = pending.map(t => {
+    const ph = _isSplit(t) ? _splitH(t) : t.estimatedHours;
+    return `
     <div class="review-task-row">
       <span class="review-check" style="color:var(--gray-400)">◯</span>
       <span class="review-title">${esc(t.title)}</span>
       <div class="review-task-actions">
         <input type="number" id="rp-${t.id}" class="review-partial-input no-spin"
-          placeholder="${t.estimatedHours}" min="0" max="24" step="0.5">
+          placeholder="${ph}" min="0" max="24" step="0.5">
         <span style="font-size:11px;color:var(--gray-400)">h</span>
         <button class="btn btn-outline btn-sm" onclick="reviewMarkDone('${t.id}')">完了</button>
         <button class="btn btn-outline btn-sm" onclick="reviewPostpone('${t.id}')">→今日</button>
         <button class="btn btn-outline btn-sm" style="color:var(--red-500)" onclick="reviewDelete('${t.id}')">🗑</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   document.getElementById('review-modal').innerHTML = `
     <div class="modal-overlay">
@@ -4241,16 +4261,39 @@ function reviewMarkDone(taskId) {
   const hours = inp && inp.value !== '' ? parseFloat(inp.value) : null;
   const t = D().tasks.find(x => x.id === taskId);
   if (!t) return;
-  t.status = 'completed';
-  t.completedAt = new Date().toISOString();
-  t.actualHours = hours ?? t.estimatedHours;
+  if (Array.isArray(t.estimatedHoursByDate) && t.estimatedHoursByDate.length >= 2) {
+    if (!t.completedSlots) t.completedSlots = [];
+    if (!t.partialHours) t.partialHours = [];
+    t.estimatedHoursByDate.forEach((e, i) => {
+      if (e.date === _reviewDate && !t.completedSlots.includes(i)) {
+        t.completedSlots.push(i);
+        const slotH = hours ?? e.hours;
+        const ex = t.partialHours.find(p => p.slotIdx === i);
+        if (ex) ex.hours = slotH;
+        else t.partialHours.push({ date: _reviewDate, hours: slotH, slotIdx: i });
+      }
+    });
+  } else {
+    t.status = 'completed';
+    t.completedAt = new Date().toISOString();
+    t.actualHours = hours ?? t.estimatedHours;
+  }
   Storage.save();
   _renderReviewStep1();
 }
 
 function reviewPostpone(taskId) {
   const t = D().tasks.find(x => x.id === taskId);
-  if (t) { t.scheduledDate = todayStr(); }
+  if (!t) return;
+  if (Array.isArray(t.estimatedHoursByDate) && t.estimatedHoursByDate.length >= 2) {
+    const today = todayStr();
+    t.estimatedHoursByDate = t.estimatedHoursByDate.map(e =>
+      e.date === _reviewDate ? { ...e, date: today } : e
+    );
+    t.estimatedHoursByDate.sort((a, b) => a.date.localeCompare(b.date));
+  } else {
+    t.scheduledDate = todayStr();
+  }
   Storage.save();
   _renderReviewStep1();
 }
@@ -6166,18 +6209,18 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
   const _stP = startTime ? startTime.split(':').map(Number) : null;
   const _etP = endTime   ? endTime.split(':').map(Number)   : null;
   row.innerHTML = `
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;flex-wrap:nowrap">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:nowrap">
       <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">作業日</span>
       <input type="date" value="${dateStr}" style="flex:1;min-width:90px;font-size:12px" onchange="this.closest('[data-em-date]').dataset.emDate=this.value;_updateEmHoursSum()">
       <button type="button" onclick="this.closest('[data-em-date]').remove();_updateEmHoursSum()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:14px;padding:0 2px;flex-shrink:0">×</button>
     </div>
     <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
       <span style="font-size:11px;color:var(--gray-500)">開始</span>
-      <select id="em-ebd-start-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdStartHChange(this)">${_hourOpts(6, 22, _stP ? _stP[0] : null)}</select>
+      <select id="em-ebd-start-h-${rowCount}" style="font-size:12px;width:52px;text-align-last:center" onchange="_onEmEbdStartHChange(this)">${_hourOpts(6, 22, _stP ? _stP[0] : null)}</select>
       <span style="font-size:11px;color:var(--gray-400)">:</span>
       <select id="em-ebd-start-m-${rowCount}" style="font-size:12px;width:46px"${_stP ? '' : ' disabled'} onchange="_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_stP ? _stP[1] : null)}</select>
       <span style="font-size:11px;color:var(--gray-500)">終了</span>
-      <select id="em-ebd-end-h-${rowCount}" style="font-size:12px;width:52px" onchange="_onEmEbdEndHChange(this)">${_hourOpts(6, 23, _etP ? _etP[0] : null)}</select>
+      <select id="em-ebd-end-h-${rowCount}" style="font-size:12px;width:52px;text-align-last:center" onchange="_onEmEbdEndHChange(this)">${_hourOpts(6, 23, _etP ? _etP[0] : null)}</select>
       <span style="font-size:11px;color:var(--gray-400)">:</span>
       <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'} onchange="_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_etP ? _etP[1] : null)}</select>
       <span style="font-size:11px;color:var(--gray-500);margin-left:4px">時間</span>
@@ -6280,11 +6323,11 @@ function _buildEmHoursUI(task, timeOpts, hours) {
     <div id="em-hours-total" style="${mode==='daily'?'display:none':''}">
       <div id="em-task-time-section" style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
         <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">開始</span>
-        <select id="em-start-h" style="font-size:12px;width:52px" onchange="_onEmStartHChange()">${_hourOpts(7,22,stP?stP[0]:null)}</select>
+        <select id="em-start-h" style="font-size:12px;width:52px;text-align-last:center" onchange="_onEmStartHChange()">${_hourOpts(7,22,stP?stP[0]:null)}</select>
         <span style="font-size:11px;color:var(--gray-400)">:</span>
         <select id="em-start-m" style="font-size:12px;width:46px" onchange="_onEmStartMChange()"${stP?'':' disabled'}>${_minOpts(stP?stP[1]:null)}</select>
         <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;margin-left:4px">終了</span>
-        <select id="em-end-h" style="font-size:12px;width:52px" onchange="_onEmEndHChange()">${_hourOpts(7,23,etP?etP[0]:null)}</select>
+        <select id="em-end-h" style="font-size:12px;width:52px;text-align-last:center" onchange="_onEmEndHChange()">${_hourOpts(7,23,etP?etP[0]:null)}</select>
         <span style="font-size:11px;color:var(--gray-400)">:</span>
         <select id="em-end-m" style="font-size:12px;width:46px" onchange="_onEmEndMChange()"${etP?'':' disabled'}>${_minOpts(etP?etP[1]:null)}</select>
         <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;margin-left:4px">時間</span>
