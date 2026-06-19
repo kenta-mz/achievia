@@ -1847,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r62'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r63'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2635,7 +2635,7 @@ function taskRow(task, d) {
   const _somedayClickGuard = isUnscheduled ? 'if(_somedayRecentDrag)return;' : '';
   // いつかやる欄は予定時間のみ表示・クリックで予定時間のみ編集
   const hoursBadge = isUnscheduled
-    ? `<button class="tag-hours" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">${task.estimatedHours || 0}h</button>`
+    ? `<button class="tag-hours" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">${_fmtH(task.estimatedHours || 0)}</button>`
     : effectiveDone
     ? `<span class="tag-hours" style="cursor:default;color:var(--green-600)">${partialOnDate > 0 ? _fmtH(partialOnDate) : _fmtH(slotH)}</span>`
     : partialOnDate > 0
@@ -4589,10 +4589,12 @@ function openEstModal(taskId) {
         <div class="modal-body">
           <div style="font-weight:600;margin-bottom:16px;font-size:14px">${esc(t.title)}</div>
           <div>
-            <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定時間 (h)</div>
-            <select id="est-only-select" style="width:100%;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff;outline:none">
-              ${[0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<option value="${v}"${v===est?' selected':''}>${v}</option>`).join('')}
-            </select>
+            <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定時間（分）</div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <input type="number" id="est-only-input" class="no-spin" min="0" max="1440" step="1" value="${Math.round(est * 60)}"
+                style="flex:1;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:16px;font-weight:700;font-family:inherit;color:var(--ink);background:#fff;outline:none;text-align:center">
+              <span style="font-size:12px;color:var(--gray-500)">分</span>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -4604,9 +4606,11 @@ function openEstModal(taskId) {
   modal.style.display = 'flex';
 }
 function saveEstOnly(taskId) {
-  const sel = document.getElementById('est-only-select');
+  const inp = document.getElementById('est-only-input');
   const t = D().tasks.find(x => x.id === taskId); if (!t) return;
-  t.estimatedHours = parseFloat(sel.value) || 1;
+  const mins = Math.min(1440, Math.max(0, parseFloat(inp.value) || 0)); // 0〜1440分にクランプ
+  // 予定時間に 0 は無意味（既存処理は estimatedHours||1 で1h扱い）→ 0/空は60分にフォールバック
+  t.estimatedHours = (mins || 60) / 60;
   commit(); closeCompletionModal(); render();
 }
 
