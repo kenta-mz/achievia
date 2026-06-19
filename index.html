@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r57'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r58'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5610,6 +5610,7 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
   document.getElementById('task-edit-modal').style.display = 'flex';
   document.getElementById('em-title').focus();
   _initEmHoursDailyRows(task);
+  _updateDailyModeAvailability();
   _emLastEdited = null;
 }
 
@@ -5715,6 +5716,7 @@ function openNewTaskModal() {
   document.getElementById('task-edit-modal').style.display = 'flex';
   setTimeout(() => document.getElementById('em-title')?.focus(), 0);
   _initEmHoursDailyRows(null);
+  _updateDailyModeAvailability();
   _emLastEdited = null;
 }
 
@@ -5811,6 +5813,29 @@ function toggleEmRecurringUI() {
   const on = document.getElementById('em-recurring-toggle')?.checked;
   const s  = document.getElementById('em-recurring-settings');
   if (s) s.style.display = on ? '' : 'none';
+  _updateDailyModeAvailability();
+}
+
+// 繰り返しタスクは「日別」選択不可。繰り返しON時は日別ボタンを無効化し、
+// 日別表示中なら合計へ戻す
+function _updateDailyModeAvailability() {
+  const recurring = !!document.getElementById('em-recurring-toggle')?.checked;
+  const dailyBtn = document.querySelector('[data-em-mode="daily"]');
+  if (!dailyBtn) return;
+  dailyBtn.disabled = recurring;
+  dailyBtn.style.opacity = recurring ? '0.4' : '';
+  dailyBtn.style.cursor  = recurring ? 'not-allowed' : '';
+  if (recurring) {
+    const total = document.getElementById('em-hours-total');
+    if (total && total.style.display === 'none') {
+      // 日別→合計へ強制変換。全日の合計時間を保持する（1行目だけにせず sum を使う）
+      const sumH = Array.from(document.querySelectorAll('#em-hours-daily-rows [data-em-date]'))
+        .reduce((s, row) => s + _readRowDuration(row), 0) || 1;
+      toggleEmTimeMethod('duration');
+      toggleEmHoursMode('total');
+      _applyDurSelects(document.getElementById('em-dur-h'), document.getElementById('em-dur-m'), sumH);
+    }
+  }
 }
 
 function toggleEmFreqDays() {
