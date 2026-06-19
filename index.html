@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r51'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r52'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5520,12 +5520,14 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
       <label>タイトル *</label>
       <input type="text" id="em-title" value="${esc(task.title)}">
     </div>
-    <div class="hero-toggle" style="margin-top:6px;margin-bottom:4px;display:inline-flex">
-      <button type="button" data-em-mode="total" class="${(task.estimatedHoursMode||'total')==='total'?'active':''}" onclick="toggleEmHoursMode('total')">合計</button>
-      <button type="button" data-em-mode="daily" class="${(task.estimatedHoursMode||'total')==='daily'?'active':''}" onclick="toggleEmHoursMode('daily')">日別</button>
-    </div>
     <div class="em-field" style="margin-top:8px">
-      <label>作業予定</label>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <label style="margin:0">作業予定</label>
+        <div class="hero-toggle" style="display:inline-flex">
+          <button type="button" data-em-mode="total" class="${(task.estimatedHoursMode||'total')==='total'?'active':''}" onclick="toggleEmHoursMode('total')">合計</button>
+          <button type="button" data-em-mode="daily" class="${(task.estimatedHoursMode||'total')==='daily'?'active':''}" onclick="toggleEmHoursMode('daily')">日別</button>
+        </div>
+      </div>
       <div id="em-scheduled-date-row" style="margin-bottom:4px">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto">
           <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">作業日</span>
@@ -5641,12 +5643,14 @@ function openNewTaskModal() {
       <label>タイトル *</label>
       <input type="text" id="em-title" value="${esc(_qsNewTitle||'')}">
     </div>
-    <div class="hero-toggle" style="margin-top:6px;margin-bottom:4px;display:inline-flex">
-      <button type="button" data-em-mode="total" class="active" onclick="toggleEmHoursMode('total')">合計</button>
-      <button type="button" data-em-mode="daily" onclick="toggleEmHoursMode('daily')">日別</button>
-    </div>
     <div class="em-field" style="margin-top:8px">
-      <label>作業予定</label>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <label style="margin:0">作業予定</label>
+        <div class="hero-toggle" style="display:inline-flex">
+          <button type="button" data-em-mode="total" class="active" onclick="toggleEmHoursMode('total')">合計</button>
+          <button type="button" data-em-mode="daily" onclick="toggleEmHoursMode('daily')">日別</button>
+        </div>
+      </div>
       <div id="em-scheduled-date-row" style="margin-bottom:4px">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto">
           <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">作業日</span>
