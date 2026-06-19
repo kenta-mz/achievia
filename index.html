@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r49'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r50'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -6210,7 +6210,7 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
   row.innerHTML = `
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:nowrap">
       <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;flex-shrink:0">作業日</span>
-      <input type="date" value="${dateStr}" style="flex:1;min-width:90px;font-size:12px" onchange="this.closest('[data-em-date]').dataset.emDate=this.value;_updateEmHoursSum()">
+      <input type="date" value="${dateStr}" style="flex:1;min-width:90px" onchange="this.closest('[data-em-date]').dataset.emDate=this.value;_updateEmHoursSum()">
       <button type="button" onclick="this.closest('[data-em-date]').remove();_updateEmHoursSum()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:14px;padding:0 2px;flex-shrink:0">×</button>
     </div>
     <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
