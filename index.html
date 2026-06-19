@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r53'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r54'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -6409,8 +6409,8 @@ function _buildEmHoursUI(task, timeOpts, hours) {
   return `
     <div id="em-hours-total" style="${mode==='daily'?'display:none':''}">
       <div class="hero-toggle" id="em-time-method-toggle" style="display:inline-flex;margin-bottom:6px">
-        <button type="button" data-em-time-method="time" class="${_method==='time'?'active':''}" onclick="toggleEmTimeMethod('time')">開始/終了時刻</button>
         <button type="button" data-em-time-method="duration" class="${_method==='duration'?'active':''}" onclick="toggleEmTimeMethod('duration')">作業予定時間</button>
+        <button type="button" data-em-time-method="time" class="${_method==='time'?'active':''}" onclick="toggleEmTimeMethod('time')">開始/終了時刻</button>
       </div>
       <div id="em-task-time-section">
         <div id="em-time-inputs" style="display:${_method==='time'?'flex':'none'};align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto">
