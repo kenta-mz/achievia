@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r59'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r60'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2388,7 +2388,9 @@ function moveHeroDate(delta) {
 }
 function goHeroToday() {
   heroAnchorDate = todayStr();
-  _focusListOnHeroDate();
+  // 「表示をリセット ✕」と同じ挙動：ウィンドウと日付セクションの開閉を既定へ戻す
+  _futureWindow = 3; _futureShown = true; _pastShown = false; _pastWindow = 3;
+  Object.keys(collapsedSections).forEach(k => { if (/^\d{4}-\d{2}-\d{2}$/.test(k)) delete collapsedSections[k]; });
   render();
   _loadGCalForDate(heroAnchorDate);
 }
