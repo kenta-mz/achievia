@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r47'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r48'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5520,11 +5520,9 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
       <label>タイトル *</label>
       <input type="text" id="em-title" value="${esc(task.title)}">
     </div>
-    <div style="margin-top:6px;margin-bottom:4px">
-      <button type="button" id="em-hours-mode-btn" onclick="toggleEmHoursMode()"
-        style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:6px;background:var(--gray-50);cursor:pointer;white-space:nowrap">
-        ${(task.estimatedHoursMode||'total')==='daily' ? '合計で入力 ▼' : '日別で入力 ▼'}
-      </button>
+    <div class="hero-toggle" style="margin-top:6px;margin-bottom:4px;display:inline-flex">
+      <button type="button" data-em-mode="total" class="${(task.estimatedHoursMode||'total')==='total'?'active':''}" onclick="toggleEmHoursMode('total')">合計</button>
+      <button type="button" data-em-mode="daily" class="${(task.estimatedHoursMode||'total')==='daily'?'active':''}" onclick="toggleEmHoursMode('daily')">日別</button>
     </div>
     <div class="em-field" style="margin-top:8px">
       <label>作業予定</label>
@@ -5643,11 +5641,9 @@ function openNewTaskModal() {
       <label>タイトル *</label>
       <input type="text" id="em-title" value="${esc(_qsNewTitle||'')}">
     </div>
-    <div style="margin-top:6px;margin-bottom:4px">
-      <button type="button" id="em-hours-mode-btn" onclick="toggleEmHoursMode()"
-        style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:6px;background:var(--gray-50);cursor:pointer;white-space:nowrap">
-        日別で入力 ▼
-      </button>
+    <div class="hero-toggle" style="margin-top:6px;margin-bottom:4px;display:inline-flex">
+      <button type="button" data-em-mode="total" class="active" onclick="toggleEmHoursMode('total')">合計</button>
+      <button type="button" data-em-mode="daily" onclick="toggleEmHoursMode('daily')">日別</button>
     </div>
     <div class="em-field" style="margin-top:8px">
       <label>作業予定</label>
@@ -6143,14 +6139,16 @@ function _emHoursSelectOpts(selected) {
   ).join('');
 }
 
-function toggleEmHoursMode() {
-  const btn      = document.getElementById('em-hours-mode-btn');
+function toggleEmHoursMode(mode) {
   const total    = document.getElementById('em-hours-total');
   const daily    = document.getElementById('em-hours-daily');
-  if (!btn || !total || !daily) return;
-  const isDaily = total.style.display === 'none';
+  if (!total || !daily) return;
+  if (!mode) mode = total.style.display === 'none' ? 'total' : 'daily';
+  const currentlyDaily = total.style.display === 'none';
+  if ((mode === 'daily') === currentlyDaily) return;
+  const isDaily = mode === 'daily';
   const scheduledDateRow = document.getElementById('em-scheduled-date-row');
-  if (isDaily) {
+  if (!isDaily) {
     // switch to total — 日別1行目の時刻をタスクレベルに反映
     const firstRow = daily.querySelector('[data-em-date]');
     if (firstRow) {
@@ -6163,7 +6161,6 @@ function toggleEmHoursMode() {
     }
     total.style.display = '';
     daily.style.display = 'none';
-    btn.textContent = '日別で入力 ▼';
     if (scheduledDateRow) scheduledDateRow.style.display = '';
   } else {
     // switch to daily — タスクレベルの時刻を日別1行目に反映
@@ -6172,7 +6169,6 @@ function toggleEmHoursMode() {
     }
     total.style.display = 'none';
     daily.style.display = '';
-    btn.textContent = '合計で入力 ▼';
     if (scheduledDateRow) scheduledDateRow.style.display = 'none';
     // タスクレベルの時刻を日別1行目にコピー
     const firstRow = daily.querySelector('[data-em-date]');
@@ -6196,6 +6192,9 @@ function toggleEmHoursMode() {
       _recalcEbdRowHours(firstRow);
     }
   }
+  document.querySelectorAll('[data-em-mode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.emMode === mode);
+  });
   _updateEmHoursSum();
 }
 
