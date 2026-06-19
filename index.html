@@ -247,14 +247,16 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 }
 .task-tags { display: flex; align-items: center; gap: 4px; flex-shrink: 0; flex-wrap: nowrap; margin-left: auto; }
 .task-actions {
-  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  position: absolute; right: 100px; top: 50%; transform: translateY(-50%);
   display: flex; align-items: center; gap: 1px;
   opacity: 0; pointer-events: none; transition: opacity .15s;
   background: #fff; border-radius: 6px; padding: 2px;
   box-shadow: 0 1px 4px rgba(0,0,0,.08);
 }
 .task-card:hover .task-actions { opacity: 1; pointer-events: auto; }
-.task-card:hover .task-time { margin-right: 116px; } /* 最大4ボタン分のアクション幅（約111px）+ 余白を確保 */
+/* アクションは時計（.task-time, width:84px）の左側に表示し、時計位置はホバーで動かさない。
+   ホバー時はタグを左へ退避させ、アクションがタグ（ステータスバッジ等）を覆わないようにする */
+.task-card:hover .task-tags { margin-right: 118px; }
 .task-action-btn {
   width: 26px; height: 26px; border: none; background: transparent; color: var(--gray-400);
   cursor: pointer; border-radius: 5px; display: flex; align-items: center;
@@ -720,6 +722,8 @@ input[type="number"].no-spin::-webkit-outer-spin-button { -webkit-appearance: no
   header { padding: 0 16px; gap: 8px; }
   .hero-hours-big { font-size: 22px; }
   .task-tags { display: none; }
+  /* タグ非表示時はホバー余白をタイトル側に確保し、アクションがタイトルを覆わないようにする */
+  .task-card:hover .task-title-wrap { padding-right: 116px; }
 }
 
 /* ── Task List Card ── */
@@ -1843,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r61'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r62'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -1914,7 +1918,7 @@ function toggleSlotComplete(taskId, slotIdx) {
 function openSlotCompleteModal(taskId, slotDate, slotIdx) {
   const t = D().tasks.find(x => x.id === taskId); if (!t) return;
   const ebdEntry = (t.estimatedHoursByDate || [])[slotIdx] || (t.estimatedHoursByDate || []).find(e => e.date === slotDate);
-  const est = ebdEntry ? ebdEntry.hours : (t.estimatedHours || 1);
+  const est = ebdEntry ? ebdEntry.hours : (t.estimatedHours ?? 1);
   const existing = (t.partialHours || []).find(p => p.slotIdx === slotIdx) || (t.partialHours || []).find(p => p.date === slotDate && p.slotIdx === undefined);
   const current = existing ? existing.hours : 0;
   const [y,m,dd] = slotDate.split('-').map(Number);
@@ -4640,7 +4644,7 @@ function openPartialModal(taskId, slotDate, slotIdx) {
   const ebdEntry = hasSlotIdx
     ? (t.estimatedHoursByDate || [])[Number(slotIdx)]
     : slotDate && (t.estimatedHoursByDate || []).find(e => e.date === slotDate);
-  const est = ebdEntry ? ebdEntry.hours : (t.estimatedHours || 1);
+  const est = ebdEntry ? ebdEntry.hours : (t.estimatedHours ?? 1);
   const modal = document.getElementById('completion-modal');
   modal.innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeCompletionModal()">
@@ -4661,10 +4665,12 @@ function openPartialModal(taskId, slotDate, slotIdx) {
               </div>
             </div>
             <div>
-              <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定 (h)</div>
-              <select id="partial-est-select" style="width:100%;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff;outline:none">
-                ${[0.25,0.5,0.75,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>`<option value="${v}"${v===est?' selected':''}>${v}</option>`).join('')}
-              </select>
+              <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定（分）</div>
+              <div style="display:flex;align-items:center;gap:4px">
+                <input type="number" id="partial-est-input" class="no-spin" min="0" max="1440" step="1" value="${Math.round(est * 60)}"
+                  style="flex:1;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:16px;font-weight:700;font-family:inherit;color:var(--ink);background:#fff;outline:none;text-align:center">
+                <span style="font-size:12px;color:var(--gray-500)">分</span>
+              </div>
             </div>
           </div>
           <div style="font-size:11px;color:var(--gray-500);margin-bottom:8px">経過時間（クリックで変更）</div>
@@ -4684,15 +4690,16 @@ function openPartialModal(taskId, slotDate, slotIdx) {
 
 function savePartialHours(taskId, targetDate, slotIdx) {
   const inp = document.getElementById('partial-hours-input');
-  const estSel = document.getElementById('partial-est-select');
-  const hours = (parseFloat(inp.value) || 0) / 60;
+  const estInp = document.getElementById('partial-est-input');
+  const _clampMin = v => Math.min(1440, Math.max(0, parseFloat(v) || 0)); // 0〜1440分にクランプ
+  const hours = _clampMin(inp.value) / 60;
   const t = D().tasks.find(x => x.id === taskId); if (!t) return;
   const date = targetDate || todayStr();
   const hasSlotIdx = slotIdx !== undefined && slotIdx !== 'undefined';
   const idx = hasSlotIdx ? Number(slotIdx) : -1;
-  // 予定時間の変更を反映
-  if (estSel) {
-    const newEst = parseFloat(estSel.value);
+  // 予定時間の変更を反映（分入力 → 時間）
+  if (estInp) {
+    const newEst = _clampMin(estInp.value) / 60;
     const ebdEntry = hasSlotIdx ? (t.estimatedHoursByDate || [])[idx] : (t.estimatedHoursByDate || []).find(e => e.date === date);
     if (ebdEntry) {
       ebdEntry.hours = newEst;
