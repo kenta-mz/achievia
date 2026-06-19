@@ -1843,7 +1843,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r58'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-19-r59'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2357,15 +2357,38 @@ async function _loadGCalForDate(date) {
   _gcalEventsCache[date] = events;
   if (heroAnchorDate === date) render(); // race condition 対策：表示日が変わっていたら再描画しない
 }
+// Hero 日付変更時：リストで heroAnchorDate のセクションのみ展開し他は閉じる
+function _focusListOnHeroDate() {
+  const keep = heroAnchorDate;
+  const t = todayStr();
+  const diff = Math.round((new Date(keep + 'T00:00:00') - new Date(t + 'T00:00:00')) / 86400000);
+  // 対象日のセクションが描画されるようウィンドウ・表示を拡張
+  if (diff < 0) { _pastShown = true; if (_pastWindow < -diff) _pastWindow = -diff; }
+  else if (diff > 0) {
+    _futureShown = true;
+    if (_futureWindow < diff) _futureWindow = diff;
+    // 表示ウィンドウ拡張に伴い繰り返しインスタンスを生成（expandFutureWindow と同様）
+    if (recurringWindow < _futureWindow + 3) { recurringWindow = _futureWindow + 3; refreshRecurringInstances(); }
+  }
+  // 既存の日付キーの開閉をリセット（特殊キー _tlUnsched / _multiday は保持）
+  Object.keys(collapsedSections).forEach(k => { if (/^\d{4}-\d{2}-\d{2}$/.test(k)) delete collapsedSections[k]; });
+  // 描画対象の全日付のうち keep 以外を閉じる（keep は既定の展開のまま）
+  const dates = new Set([t]);
+  for (let i = 1; i <= _pastWindow; i++)   dates.add(_offsetDate(-i));
+  for (let i = 1; i <= _futureWindow; i++) dates.add(_offsetDate(i));
+  dates.forEach(dt => { if (dt !== keep) collapsedSections[dt] = true; });
+}
 function moveHeroDate(delta) {
   const base = new Date(heroAnchorDate + 'T00:00:00');
   base.setDate(base.getDate() + delta);
   heroAnchorDate = `${base.getFullYear()}-${pad(base.getMonth()+1)}-${pad(base.getDate())}`;
+  _focusListOnHeroDate();
   render();
   _loadGCalForDate(heroAnchorDate);
 }
 function goHeroToday() {
   heroAnchorDate = todayStr();
+  _focusListOnHeroDate();
   render();
   _loadGCalForDate(heroAnchorDate);
 }
