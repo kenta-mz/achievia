@@ -1847,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-20-r65'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-20-r66'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2635,12 +2635,14 @@ function taskRow(task, d) {
   const _somedayClickGuard = isUnscheduled ? 'if(_somedayRecentDrag)return;' : '';
   // いつかやる欄は予定時間のみ表示・クリックで予定時間のみ編集
   const hoursBadge = isUnscheduled
-    ? `<button class="tag-hours" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">${_fmtH(task.estimatedHours || 0)}</button>`
+    ? `<button class="tag-hours" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">◷ ${_fmtHorDash(task.estimatedHours)}</button>`
     : effectiveDone
-    ? `<span class="tag-hours" style="cursor:default;color:var(--green-600)">${partialOnDate > 0 ? _fmtH(partialOnDate) : _fmtH(slotH)}</span>`
+    ? (partialOnDate > 0
+      ? `<span class="tag-hours" style="cursor:default;color:var(--green-600)">✓ ${_fmtH(partialOnDate)}</span>`
+      : `<span class="tag-hours" style="cursor:default;color:var(--green-600)">◷ ${_fmtHorDash(slotH)}</span>`)
     : partialOnDate > 0
-    ? `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()" style="color:var(--amber-500)">${_fmtH(partialOnDate)} / ${_fmtH(slotH)}</button>`
-    : `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()">${_fmtH(slotH)}</button>`;
+    ? `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()" style="color:var(--amber-500)">✓${_fmtH(partialOnDate)} / ◷${_fmtHorDash(slotH)}</button>`
+    : `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()">◷ ${_fmtHorDash(slotH)}</button>`;
   // ステータスバッジ（いつかやる欄・showStatus:false の作業種類は非表示、完了時は「● 完了」を表示）
   const wtShowStatus = wt ? (wt.showStatus !== false) : true;
   const statusLabel = { pending: '未着手', in_progress: '進行中', waiting: '待ち', completed: '完了' };
@@ -2921,8 +2923,8 @@ function renderTimeline(d) {
       ? ` [${task._slotIdx + 1}/${task._slotTotal}]`
       : '';
     const timeLabel = effStart
-      ? (effEnd ? `${effStart}–${effEnd}` : `${effStart}`) + ` · ${_fmtH(effHours)}${slotBadge}`
-      : `${_fmtH(effHours)}${slotBadge}`;
+      ? (effEnd ? `${effStart}–${effEnd}` : `${effStart}`) + ` · ${_fmtHorDash(effHours)}${slotBadge}`
+      : `${_fmtHorDash(effHours)}${slotBadge}`;
     const handleH = Math.max(6, Math.min(12, Math.floor(h / 4)));
     const pad    = h < 40 ? '2px 6px' : '5px 8px';
     const showSub = h >= 44;  // プロジェクト名 or 時刻ラベルを表示するか
@@ -2959,7 +2961,7 @@ function renderTimeline(d) {
     return `<div class="timeline-unsched-task${done ? ' done' : ''}" data-id="${task.id}" onclick="_onTlUnschedTaskClick(event,'${task.id}')">
       <span style="font-size:12px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(task.title)}</span>
       ${proj ? `<span class="task-tag" style="background:${proj.color}22;color:${proj.color};flex-shrink:0">${esc(proj.name)}</span>` : ''}
-      <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${_fmtH(task.estimatedHours || 0)}</span>
+      <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${_fmtHorDash(task.estimatedHours)}</span>
     </div>`;
   }).join('');
 
@@ -3250,7 +3252,7 @@ function handleSomedayAdd() {
   const d = D();
   d.tasks.push({ id: genId(), type: 'task', title, notes,
     projectId: _somedayProjectId, workType: _somedayWorkTypeId,
-    priority: 'medium', estimatedHours: 1, actualHours: null, partialHours: [],
+    priority: 'medium', estimatedHours: _predictedEstOrNull(title), actualHours: null, partialHours: [],
     startTime: null, endTime: null, deadline: null, status: 'pending', tagIds: [], scheduledDate: null,
     recurring: null, recurringId: null, order: d.tasks.length,
     completedAt: null, createdAt: new Date().toISOString() });
@@ -3364,7 +3366,7 @@ function renderCalendar() {
         <div class="cal-day-task">
           <span class="cal-day-task-status">${task.status==='completed'?'✅':'○'}</span>
           <span class="cal-day-task-title">${esc(task.title)}</span>
-          <span class="cal-day-task-h">${task.actualHours ? _fmtH(task.actualHours) : _fmtH(task.estimatedHours||1)}</span>
+          <span class="cal-day-task-h">${task.actualHours ? _fmtH(task.actualHours) : _fmtHorDash(task.estimatedHours)}</span>
         </div>`).join('')
       : `<div style="color:var(--gray-400);font-size:13px;padding:16px;text-align:center">タスクなし</div>`}
     </div>`;
@@ -3453,7 +3455,7 @@ function openDayDetail(dateStr) {
       <span style="color:var(--green-500);flex-shrink:0">${t.status==='completed'?'✅':'○'}</span>
       <span style="flex:1">${esc(t.title)}</span>
       ${proj ? `<span style="font-size:10px;padding:1px 6px;border-radius:100px;background:${proj.color}20;color:${proj.color};font-weight:600">${esc(proj.name)}</span>` : ''}
-      <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${t.actualHours ? _fmtH(t.actualHours) : _fmtH(t.estimatedHours||1)}</span>
+      <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${t.actualHours ? _fmtH(t.actualHours) : _fmtHorDash(t.estimatedHours)}</span>
     </div>`;
   };
 
@@ -3887,7 +3889,7 @@ function importGCalTask(fields) {
     scheduledDate: fields.scheduledDate,
     startTime: fields.startTime || null,
     endTime: fields.endTime || null,
-    estimatedHours: fields.estimatedHours || 0,
+    estimatedHours: fields.estimatedHours ?? null,
     actualHours: null,
     partialHours: [],
     status: 'pending',
@@ -4193,6 +4195,7 @@ function _fmtH(h) {
   const m = Math.round(h * 60), hh = Math.floor(m / 60), mm = m % 60;
   return `${hh}:${String(mm).padStart(2, '0')}`;
 } // 0→"0:00"  0.5→"0:30"  1→"1:00"  1.5→"1:30"  7.75→"7:45"
+const _fmtHorDash = h => (h == null) ? '-:--' : _fmtH(h);
 
 function checkReview() {
   const d = D(); const yest = yesterdayStr(); const t = todayStr();
@@ -4243,7 +4246,7 @@ function _renderReviewStep1() {
     <div class="review-task-row">
       <span class="review-check" style="color:var(--green-500)">✓</span>
       <span class="review-title done">${esc(t.title)}</span>
-      <span class="review-hours">${_fmtH(dH)}</span>
+      <span class="review-hours">${_fmtHorDash(dH)}</span>
     </div>`;
   }).join('');
 
@@ -4255,7 +4258,7 @@ function _renderReviewStep1() {
       <span class="review-title">${esc(t.title)}</span>
       <div class="review-task-actions">
         <input type="number" id="rp-${t.id}" class="review-partial-input no-spin"
-          placeholder="${ph}" min="0" max="24" step="0.5">
+          placeholder="${ph ?? ''}" min="0" max="24" step="0.5">
         <span style="font-size:11px;color:var(--gray-400)">h</span>
         <button class="btn btn-outline btn-sm" onclick="reviewMarkDone('${t.id}')">完了</button>
         <button class="btn btn-outline btn-sm" onclick="reviewPostpone('${t.id}')">→今日</button>
@@ -5349,6 +5352,12 @@ function _predictHoursData(title) {
   return { avg: Math.max(0.5, Math.round(avg * 2) / 2), count: top6.length };
 }
 
+// 予測値を返す。予測不能なら null（=未設定）
+function _predictedEstOrNull(title) {
+  const p = _predictHoursData(title);
+  return p ? p.avg : null;
+}
+
 // ── Submit ──────────────────────────────────────────────────
 function handleQuickAdd() {
   const inp    = document.getElementById('quick-add-input');
@@ -5358,11 +5367,10 @@ function handleQuickAdd() {
   const notes = notesEl ? notesEl.value.trim() : '';
   const d = D();
   const scheduledDate = (_qaDate === void 0) ? heroAnchorDate : _qaDate; // null → someday
-  const prediction = _predictHoursData(val);
   d.tasks.push({
     id: genId(), title: val, notes,
     projectId: _qaProjectId, workType: _qaWorkType,
-    estimatedHours: prediction ? prediction.avg : 1,
+    estimatedHours: _predictedEstOrNull(val),
     actualHours: null, partialHours: [], status: 'pending', tagIds: [],
     scheduledDate, priority: _qaPriority,
     order: d.tasks.length, completedAt: null, createdAt: new Date().toISOString()
@@ -5495,7 +5503,7 @@ function refreshRecurringInstances() {
       d.tasks.push({
         id: genId(), type: 'task', title: tmpl.title, notes: tmpl.notes || '',
         projectId: tmpl.projectId || null, workType: tmpl.workType || null,
-        estimatedHours: tmpl.estimatedHours || 1, actualHours: null,
+        estimatedHours: tmpl.estimatedHours, actualHours: null,
         partialHours: [], status: 'pending', tagIds: [], scheduledDate: dateStr,
         priority: tmpl.priority || 'medium', recurringId: tmpl.id,
         order: d.tasks.length, completedAt: null, createdAt: new Date().toISOString()
@@ -5698,7 +5706,7 @@ function openNewTaskModal() {
           </label>
         </div>
       </div>
-      ${_buildEmHoursUI(null, { stP: null, etP: null }, 1)}
+      ${_buildEmHoursUI(null, { stP: null, etP: null }, _qsNewTitle ? _predictedEstOrNull(_qsNewTitle) : null)}
     </div>
     <div style="margin-top:12px">
       <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
@@ -5930,7 +5938,7 @@ function saveEditModal() {
     const scheduledDate = someday ? null : (document.getElementById('em-date')?.value || todayStr());
     const _emMode = document.getElementById('em-hours-total')?.style.display === 'none' ? 'daily' : 'total';
     const _emByDate = _emMode === 'daily' ? _getEmHoursByDate() : [];
-    const _tm = _emTotalTime(_emMode, _emByDate);
+    const _tm = _emTotalTime(_emMode, _emByDate, null, true);
     const newTask = {
       id: genId(), title,
       notes:          document.getElementById('em-notes')?.value || '',
@@ -6114,14 +6122,15 @@ function toggleEmTimeMethod(method) {
 
 // 合計/日別モード × time/duration method から { hours, startTime, endTime } を決定
 // （新規作成・編集の両パスで共用）
-function _emTotalTime(mode, byDate, fallbackHours) {
+// allowUnset:true（新規作成パスのみ）の場合、明示的に時間が入力されていなければ hours:null（未設定）を返す
+function _emTotalTime(mode, byDate, fallbackHours, allowUnset) {
   const _fb = fallbackHours || 1;
   if (mode === 'daily') {
     return { hours: byDate.reduce((s, p) => s + p.hours, 0) || 1, startTime: null, endTime: null };
   }
   if (_emTimeMethod() === 'duration') {
     const h = _readDurationPair('em-dur-h', 'em-dur-m');
-    return { hours: h > 0 ? h : _fb, startTime: null, endTime: null };
+    return { hours: h > 0 ? h : (allowUnset ? null : _fb), startTime: null, endTime: null };
   }
   // time method
   const startTime = _readTimePair('em-start-h', 'em-start-m');
@@ -6131,7 +6140,8 @@ function _emTotalTime(mode, byDate, fallbackHours) {
   const endTime = (startTime && _e && toM(_e) <= toM(startTime)) ? null : _e;
   // 開始・終了が揃わない場合は作業時間(em-dur)欄の値を採用（無ければ既存値フォールバック）
   const durH = _readDurationPair('em-dur-h', 'em-dur-m');
-  const hours = (startTime && endTime) ? (toM(endTime) - toM(startTime)) / 60 : (durH > 0 ? durH : _fb);
+  const hours = (startTime && endTime) ? (toM(endTime) - toM(startTime)) / 60
+    : (durH > 0 ? durH : ((allowUnset && !startTime) ? null : _fb));
   return { hours, startTime, endTime };
 }
 
@@ -6454,7 +6464,7 @@ function _buildEmHoursUI(task, timeOpts, hours) {
   // timeOpts: { stP, etP } — 開始/終了時刻の [h, m] 配列（null可）
   const stP = timeOpts?.stP ?? null;
   const etP = timeOpts?.etP ?? null;
-  const _h  = hours ?? task?.estimatedHours ?? 1;
+  const _h  = (hours !== undefined) ? hours : (task?.estimatedHours ?? 1);
   const _method = (mode === 'daily')
     ? (daily.some(p => p.startTime || p.endTime) ? 'time' : 'duration')
     : ((stP || etP) ? 'time' : 'duration');
