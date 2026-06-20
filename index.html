@@ -1847,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-19-r63'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-20-r64'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -4578,6 +4578,7 @@ function closeCompletionModal() {
 function openEstModal(taskId) {
   const t = D().tasks.find(x => x.id === taskId); if (!t) return;
   const est = t.estimatedHours || 1;
+  const dur = _splitHours(est);
   const modal = document.getElementById('completion-modal');
   modal.innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeCompletionModal()">
@@ -4589,11 +4590,11 @@ function openEstModal(taskId) {
         <div class="modal-body">
           <div style="font-weight:600;margin-bottom:16px;font-size:14px">${esc(t.title)}</div>
           <div>
-            <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定時間（分）</div>
+            <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定時間</div>
             <div style="display:flex;align-items:center;gap:4px">
-              <input type="number" id="est-only-input" class="no-spin" min="0" max="1440" step="1" value="${Math.round(est * 60)}"
-                style="flex:1;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:16px;font-weight:700;font-family:inherit;color:var(--ink);background:#fff;outline:none;text-align:center">
-              <span style="font-size:12px;color:var(--gray-500)">分</span>
+              <select id="est-only-h" style="font-size:12px;width:52px;text-align-last:center">${_durHourOpts(dur.h)}</select>
+              <span style="font-size:11px;color:var(--gray-400)">:</span>
+              <select id="est-only-m" style="font-size:12px;width:46px">${_durMinOpts(dur.m)}</select>
             </div>
           </div>
         </div>
@@ -4606,11 +4607,10 @@ function openEstModal(taskId) {
   modal.style.display = 'flex';
 }
 function saveEstOnly(taskId) {
-  const inp = document.getElementById('est-only-input');
   const t = D().tasks.find(x => x.id === taskId); if (!t) return;
-  const mins = Math.min(1440, Math.max(0, parseFloat(inp.value) || 0)); // 0〜1440分にクランプ
-  // 予定時間に 0 は無意味（既存処理は estimatedHours||1 で1h扱い）→ 0/空は60分にフォールバック
-  t.estimatedHours = (mins || 60) / 60;
+  const hours = _readDurationPair('est-only-h', 'est-only-m');
+  // 予定時間に 0 は無意味（既存処理は estimatedHours||1 で1h扱い）→ 0は1hにフォールバック
+  t.estimatedHours = hours > 0 ? hours : 1;
   commit(); closeCompletionModal(); render();
 }
 
@@ -4649,6 +4649,7 @@ function openPartialModal(taskId, slotDate, slotIdx) {
     ? (t.estimatedHoursByDate || [])[Number(slotIdx)]
     : slotDate && (t.estimatedHoursByDate || []).find(e => e.date === slotDate);
   const est = ebdEntry ? ebdEntry.hours : (t.estimatedHours ?? 1);
+  const estDur = _splitHours(est);
   const modal = document.getElementById('completion-modal');
   modal.innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeCompletionModal()">
@@ -4669,11 +4670,11 @@ function openPartialModal(taskId, slotDate, slotIdx) {
               </div>
             </div>
             <div>
-              <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定（分）</div>
+              <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定</div>
               <div style="display:flex;align-items:center;gap:4px">
-                <input type="number" id="partial-est-input" class="no-spin" min="0" max="1440" step="1" value="${Math.round(est * 60)}"
-                  style="flex:1;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;font-size:16px;font-weight:700;font-family:inherit;color:var(--ink);background:#fff;outline:none;text-align:center">
-                <span style="font-size:12px;color:var(--gray-500)">分</span>
+                <select id="partial-est-h" style="font-size:12px;width:52px;text-align-last:center">${_durHourOpts(estDur.h)}</select>
+                <span style="font-size:11px;color:var(--gray-400)">:</span>
+                <select id="partial-est-m" style="font-size:12px;width:46px">${_durMinOpts(estDur.m)}</select>
               </div>
             </div>
           </div>
@@ -4694,23 +4695,22 @@ function openPartialModal(taskId, slotDate, slotIdx) {
 
 function savePartialHours(taskId, targetDate, slotIdx) {
   const inp = document.getElementById('partial-hours-input');
-  const estInp = document.getElementById('partial-est-input');
   const _clampMin = v => Math.min(1440, Math.max(0, parseFloat(v) || 0)); // 0〜1440分にクランプ
   const hours = _clampMin(inp.value) / 60;
   const t = D().tasks.find(x => x.id === taskId); if (!t) return;
   const date = targetDate || todayStr();
   const hasSlotIdx = slotIdx !== undefined && slotIdx !== 'undefined';
   const idx = hasSlotIdx ? Number(slotIdx) : -1;
-  // 予定時間の変更を反映（分入力 → 時間）
-  if (estInp) {
-    const newEst = _clampMin(estInp.value) / 60;
-    const ebdEntry = hasSlotIdx ? (t.estimatedHoursByDate || [])[idx] : (t.estimatedHoursByDate || []).find(e => e.date === date);
-    if (ebdEntry) {
-      ebdEntry.hours = newEst;
-      t.estimatedHours = t.estimatedHoursByDate.reduce((s, e) => s + e.hours, 0);
-    } else {
-      t.estimatedHours = newEst;
-    }
+  // 予定時間の変更を反映（時:分セレクト → 時間）。0は無意味→既存値、なければ1hにフォールバック
+  const newEst = _readDurationPair('partial-est-h', 'partial-est-m');
+  const ebdEntry = hasSlotIdx ? (t.estimatedHoursByDate || [])[idx] : (t.estimatedHoursByDate || []).find(e => e.date === date);
+  const fallback = ebdEntry ? ebdEntry.hours : (t.estimatedHours ?? 1);
+  const finalEst = newEst > 0 ? newEst : fallback;
+  if (ebdEntry) {
+    ebdEntry.hours = finalEst;
+    t.estimatedHours = t.estimatedHoursByDate.reduce((s, e) => s + e.hours, 0);
+  } else {
+    t.estimatedHours = finalEst;
   }
   if (!t.partialHours) t.partialHours = [];
   if (hasSlotIdx) {
