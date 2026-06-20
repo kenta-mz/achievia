@@ -1847,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-20-r68'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-20-r69'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -6118,7 +6118,8 @@ function _emTimeMethod() {
   return btn?.dataset.emTimeMethod || 'time';
 }
 function toggleEmTimeMethod(method) {
-  _emEstTouched = true;
+  const _changed = method !== _emTimeMethod();
+  if (_changed) _emEstTouched = true;
   document.querySelectorAll('#em-time-method-toggle [data-em-time-method]').forEach(b =>
     b.classList.toggle('active', b.dataset.emTimeMethod === method));
   // 合計モード
@@ -6304,13 +6305,13 @@ function _onEmEstimatedHoursChange() {
 // ============================================================
 
 function toggleEmHoursMode(mode) {
-  _emEstTouched = true;
   const total    = document.getElementById('em-hours-total');
   const daily    = document.getElementById('em-hours-daily');
   if (!total || !daily) return;
   if (!mode) mode = total.style.display === 'none' ? 'total' : 'daily';
   const currentlyDaily = total.style.display === 'none';
   if ((mode === 'daily') === currentlyDaily) return;
+  _emEstTouched = true;
   const isDaily = mode === 'daily';
   const scheduledDateRow = document.getElementById('em-scheduled-date-row');
   const method = _emTimeMethod();   // method はモード切替で不変（合計・日別で共通）
