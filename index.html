@@ -1847,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-20-r73'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-20-r74'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -4659,8 +4659,10 @@ function openPartialModal(taskId, slotDate, slotIdx) {
   const ebdEntry = hasSlotIdx
     ? (t.estimatedHoursByDate || [])[Number(slotIdx)]
     : slotDate && (t.estimatedHoursByDate || []).find(e => e.date === slotDate);
+  const estUnset = !ebdEntry && t.estimatedHours == null; // 予定時間が未設定(null)のまま一度も決まっていない
   const est = ebdEntry ? ebdEntry.hours : (t.estimatedHours ?? 1);
   const estDur = _splitHours(est);
+  const _estUnsetOpt = '<option value="" selected>--</option>'; // 未設定時はプルダウンに具体的な値(1:00等)を見せない
   const modal = document.getElementById('completion-modal');
   modal.innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeCompletionModal()">
@@ -4683,9 +4685,9 @@ function openPartialModal(taskId, slotDate, slotIdx) {
             <div>
               <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定</div>
               <div style="display:flex;align-items:center;gap:4px">
-                <select id="partial-est-h" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:52px;text-align-last:center" onchange="_partialEstTouched=true">${_durHourOpts(estDur.h)}</select>
+                <select id="partial-est-h" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:52px;text-align-last:center" onchange="_partialEstTouched=true">${estUnset ? _estUnsetOpt : ''}${_durHourOpts(estUnset ? null : estDur.h)}</select>
                 <span style="font-size:11px;color:var(--gray-400)">:</span>
-                <select id="partial-est-m" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:46px" onchange="_partialEstTouched=true">${_durMinOpts(estDur.m)}</select>
+                <select id="partial-est-m" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:46px" onchange="_partialEstTouched=true">${estUnset ? _estUnsetOpt : ''}${_durMinOpts(estUnset ? null : estDur.m)}</select>
               </div>
             </div>
           </div>
