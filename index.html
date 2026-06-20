@@ -1847,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-20-r66'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-20-r67'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -4038,8 +4038,10 @@ function confirmGCalImport() {
     ? `${pad(dtStart.getHours())}:${pad(dtStart.getMinutes())}` : null;
   const endTime   = (ev.end?.dateTime && endH <= TL_END_M)
     ? `${pad(dtEnd.getHours())}:${pad(dtEnd.getMinutes())}` : null;
+  // 終日イベント（ev.start.dateTimeなし）は所要時間が取得できないため null（未設定）にする。
+  // 0にすると importGCalTask の `?? null` で保持されてしまい 0:00 表示になってしまう。
   const estH = ev.start?.dateTime
-    ? Math.round((dtEnd - dtStart) / 360000) / 10 : 0;
+    ? Math.round((dtEnd - dtStart) / 360000) / 10 : null;
 
   importGCalTask({
     title,
@@ -4541,7 +4543,9 @@ function closeReview() { document.getElementById('review-modal').style.display =
 // ============================================================
 function openCompletionModal(taskId) {
   const t = D().tasks.find(x => x.id === taskId); if (!t) return;
-  const est = t.estimatedHours || 1;
+  // 予定未設定(null)タスクは実績デフォルトを0にする（1hにすると _predictHoursData の予測データを汚染する）。
+  // 数値（0含む）はそのまま尊重する。
+  const est = t.estimatedHours != null ? t.estimatedHours : 0;
   const modal = document.getElementById('completion-modal');
   modal.innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeCompletionModal()">
@@ -5939,13 +5943,17 @@ function saveEditModal() {
     const _emMode = document.getElementById('em-hours-total')?.style.display === 'none' ? 'daily' : 'total';
     const _emByDate = _emMode === 'daily' ? _getEmHoursByDate() : [];
     const _tm = _emTotalTime(_emMode, _emByDate, null, true);
+    // duration未操作（hours:null）の場合、モーダル内で入力されたタイトルから予測を適用する。
+    // _qsNewTitle（クイック追加引継ぎ）はUIプリセット時点で既に予測適用済みだが、
+    // モーダルを開いてから直接タイトルを入力したケースをここで補う。
+    const est = _tm.hours ?? _predictedEstOrNull(title);
     const newTask = {
       id: genId(), title,
       notes:          document.getElementById('em-notes')?.value || '',
       projectId:      document.getElementById('em-project')?.value   || null,
       workType:       document.getElementById('em-worktype')?.value  || null,
       priority:       'none',
-      estimatedHours: _tm.hours,
+      estimatedHours: est,
       estimatedHoursMode: _emMode,
       estimatedHoursByDate: _emByDate,
       actualHours: null, partialHours: [], status: 'pending', tagIds: [],
@@ -5997,7 +6005,7 @@ function saveEditModal() {
   task.workType      = document.getElementById('em-worktype')?.value  || null;
   const _emMode2 = document.getElementById('em-hours-total')?.style.display === 'none' ? 'daily' : 'total';
   const _emByDate2 = _emMode2 === 'daily' ? _getEmHoursByDate() : [];
-  const _tm2 = _emTotalTime(_emMode2, _emByDate2, task.estimatedHours);
+  const _tm2 = _emTotalTime(_emMode2, _emByDate2, task.estimatedHours, task.estimatedHours == null);
   task.estimatedHoursMode   = _emMode2;
   task.estimatedHoursByDate = _emByDate2;
   task.estimatedHours = _tm2.hours;
