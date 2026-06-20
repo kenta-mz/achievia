@@ -1847,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-20-r69'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-20-r70'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2634,15 +2634,17 @@ function taskRow(task, d) {
   // いつかやる欄のクリックハンドラはドラッグ直後の誤クリックを防ぐガードを付与
   const _somedayClickGuard = isUnscheduled ? 'if(_somedayRecentDrag)return;' : '';
   // いつかやる欄は予定時間のみ表示・クリックで予定時間のみ編集
+  // 予定アイコン◷は字面が小さいため一回り拡大（太さは変えない）
+  const _planIcon = '<span style="font-size:13px">◷</span>';
   const hoursBadge = isUnscheduled
-    ? `<button class="tag-hours" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">◷ ${_fmtHorDash(task.estimatedHours)}</button>`
+    ? `<button class="tag-hours" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">${_planIcon} ${_fmtHorDash(task.estimatedHours)}</button>`
     : effectiveDone
     ? (partialOnDate > 0
       ? `<span class="tag-hours" style="cursor:default;color:var(--green-600)">✓ ${_fmtH(partialOnDate)}</span>`
-      : `<span class="tag-hours" style="cursor:default;color:var(--green-600)">◷ ${_fmtHorDash(slotH)}</span>`)
+      : `<span class="tag-hours" style="cursor:default;color:var(--green-600)">${_planIcon} ${_fmtHorDash(slotH)}</span>`)
     : partialOnDate > 0
-    ? `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()" style="color:var(--amber-500)">✓${_fmtH(partialOnDate)} / ◷${_fmtHorDash(slotH)}</button>`
-    : `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()">◷ ${_fmtHorDash(slotH)}</button>`;
+    ? `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()" style="color:var(--amber-500)">✓${_fmtH(partialOnDate)} / ${_planIcon}${_fmtHorDash(slotH)}</button>`
+    : `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()">${_planIcon} ${_fmtHorDash(slotH)}</button>`;
   // ステータスバッジ（いつかやる欄・showStatus:false の作業種類は非表示、完了時は「● 完了」を表示）
   const wtShowStatus = wt ? (wt.showStatus !== false) : true;
   const statusLabel = { pending: '未着手', in_progress: '進行中', waiting: '待ち', completed: '完了' };
