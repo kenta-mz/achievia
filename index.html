@@ -1847,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-20-r72'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-20-r73'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -4647,6 +4647,7 @@ function confirmComplete(taskId) {
 
 function openPartialModal(taskId, slotDate, slotIdx) {
   const t = D().tasks.find(x => x.id === taskId); if (!t) return;
+  _partialEstTouched = false;
   const today = todayStr();
   const targetDate = slotDate || today;
   const hasSlotIdx = slotIdx !== undefined && slotIdx !== '';
@@ -4682,9 +4683,9 @@ function openPartialModal(taskId, slotDate, slotIdx) {
             <div>
               <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定</div>
               <div style="display:flex;align-items:center;gap:4px">
-                <select id="partial-est-h" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:52px;text-align-last:center">${_durHourOpts(estDur.h)}</select>
+                <select id="partial-est-h" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:52px;text-align-last:center" onchange="_partialEstTouched=true">${_durHourOpts(estDur.h)}</select>
                 <span style="font-size:11px;color:var(--gray-400)">:</span>
-                <select id="partial-est-m" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:46px">${_durMinOpts(estDur.m)}</select>
+                <select id="partial-est-m" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:46px" onchange="_partialEstTouched=true">${_durMinOpts(estDur.m)}</select>
               </div>
             </div>
           </div>
@@ -4711,16 +4712,18 @@ function savePartialHours(taskId, targetDate, slotIdx) {
   const date = targetDate || todayStr();
   const hasSlotIdx = slotIdx !== undefined && slotIdx !== 'undefined';
   const idx = hasSlotIdx ? Number(slotIdx) : -1;
-  // 予定時間の変更を反映（時:分セレクト → 時間）。0は無意味→既存値、なければ1hにフォールバック
-  const newEst = _readDurationPair('partial-est-h', 'partial-est-m');
   const ebdEntry = hasSlotIdx ? (t.estimatedHoursByDate || [])[idx] : (t.estimatedHoursByDate || []).find(e => e.date === date);
-  const fallback = ebdEntry ? ebdEntry.hours : (t.estimatedHours ?? 1);
-  const finalEst = newEst > 0 ? newEst : fallback;
-  if (ebdEntry) {
-    ebdEntry.hours = finalEst;
-    t.estimatedHours = t.estimatedHoursByDate.reduce((s, e) => s + e.hours, 0);
-  } else {
-    t.estimatedHours = finalEst;
+  // 予定時間の変更を反映（時:分セレクト → 時間）。ユーザーが触っていなければ未設定(null)等の既存値を保持する。0は無意味→既存値、なければ1hにフォールバック
+  if (_partialEstTouched) {
+    const newEst = _readDurationPair('partial-est-h', 'partial-est-m');
+    const fallback = ebdEntry ? ebdEntry.hours : (t.estimatedHours ?? 1);
+    const finalEst = newEst > 0 ? newEst : fallback;
+    if (ebdEntry) {
+      ebdEntry.hours = finalEst;
+      t.estimatedHours = t.estimatedHoursByDate.reduce((s, e) => s + e.hours, 0);
+    } else {
+      t.estimatedHours = finalEst;
+    }
   }
   if (!t.partialHours) t.partialHours = [];
   if (hasSlotIdx) {
@@ -5533,6 +5536,7 @@ let _editModalType = 'task'; // 'task' | 'recurring-template'
 let _emSourceView = 'list'; // 'list' | 'timeline'
 let _editModalSlotIdx = -1; // タイムラインのスロットインデックス（-1 = 非スロット編集）
 let _emEstTouched = false; // 予定時間系コントロールをユーザーが操作したか（新規作成パスの「未操作→予測」判定用）
+let _partialEstTouched = false; // 経過時間記録モーダルの「予定」セレクトをユーザーが操作したか（未操作なら未設定(null)を保持する判定用）
 
 function openEditModal(id, sourceView = 'list', slotIdx = -1) {
   _editModalId = id;
