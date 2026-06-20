@@ -1847,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-20-r64'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-20-r65'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -4592,9 +4592,9 @@ function openEstModal(taskId) {
           <div>
             <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定時間</div>
             <div style="display:flex;align-items:center;gap:4px">
-              <select id="est-only-h" style="font-size:12px;width:52px;text-align-last:center">${_durHourOpts(dur.h)}</select>
+              <select id="est-only-h" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:52px;text-align-last:center">${_durHourOpts(dur.h)}</select>
               <span style="font-size:11px;color:var(--gray-400)">:</span>
-              <select id="est-only-m" style="font-size:12px;width:46px">${_durMinOpts(dur.m)}</select>
+              <select id="est-only-m" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:46px">${_durMinOpts(dur.m)}</select>
             </div>
           </div>
         </div>
@@ -4672,9 +4672,9 @@ function openPartialModal(taskId, slotDate, slotIdx) {
             <div>
               <div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;font-weight:600">予定</div>
               <div style="display:flex;align-items:center;gap:4px">
-                <select id="partial-est-h" style="font-size:12px;width:52px;text-align-last:center">${_durHourOpts(estDur.h)}</select>
+                <select id="partial-est-h" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:52px;text-align-last:center">${_durHourOpts(estDur.h)}</select>
                 <span style="font-size:11px;color:var(--gray-400)">:</span>
-                <select id="partial-est-m" style="font-size:12px;width:46px">${_durMinOpts(estDur.m)}</select>
+                <select id="partial-est-m" style="border:1px solid var(--gray-200);border-radius:7px;padding:7px 10px;font-size:12px;font-family:inherit;color:var(--ink);outline:none;background:#fff;width:46px">${_durMinOpts(estDur.m)}</select>
               </div>
             </div>
           </div>
