@@ -1847,7 +1847,7 @@ function esc(s) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-20-r67'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-20-r68'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5529,11 +5529,13 @@ let _editModalId = null;
 let _editModalType = 'task'; // 'task' | 'recurring-template'
 let _emSourceView = 'list'; // 'list' | 'timeline'
 let _editModalSlotIdx = -1; // タイムラインのスロットインデックス（-1 = 非スロット編集）
+let _emEstTouched = false; // 予定時間系コントロールをユーザーが操作したか（新規作成パスの「未操作→予測」判定用）
 
 function openEditModal(id, sourceView = 'list', slotIdx = -1) {
   _editModalId = id;
   _emSourceView = sourceView;
   _editModalSlotIdx = Number(slotIdx);
+  _emEstTouched = false;
   const d = D();
   const task = d.tasks.find(t => t.id === id);
   if (!task) return;
@@ -5665,6 +5667,7 @@ function openEditModal(id, sourceView = 'list', slotIdx = -1) {
 function openNewTaskModal() {
   _editModalId = '__new__';
   _editModalSlotIdx = -1;
+  _emEstTouched = false;
   document.getElementById('em-timeline-actions').style.display = 'none';
   // Pre-fill title from quick-add input if present and _qsNewTitle not already set
   if (!_qsNewTitle) {
@@ -5943,10 +5946,13 @@ function saveEditModal() {
     const _emMode = document.getElementById('em-hours-total')?.style.display === 'none' ? 'daily' : 'total';
     const _emByDate = _emMode === 'daily' ? _getEmHoursByDate() : [];
     const _tm = _emTotalTime(_emMode, _emByDate, null, true);
-    // duration未操作（hours:null）の場合、モーダル内で入力されたタイトルから予測を適用する。
-    // _qsNewTitle（クイック追加引継ぎ）はUIプリセット時点で既に予測適用済みだが、
-    // モーダルを開いてから直接タイトルを入力したケースをここで補う。
-    const est = _tm.hours ?? _predictedEstOrNull(title);
+    // _tm.hours が null = duration 0:00（未入力 or 明示的にクリア）。
+    // 予定時間系コントロールに一度も触れていない(!touched)場合のみ「未入力」とみなし予測を適用する。
+    // touched済みでnullなら「あえて未設定」とユーザーが選んだものとして null を保持する（Codex P2対応）。
+    // _qsNewTitle（クイック追加引継ぎ）はUIプリセット時点で既に予測適用済みのためdurationが非0表示となり、
+    // この分岐自体に到達しない（=従来通り予測値が保存される）。
+    const est = (_tm.hours != null) ? _tm.hours
+              : (_emEstTouched ? null : _predictedEstOrNull(title));
     const newTask = {
       id: genId(), title,
       notes:          document.getElementById('em-notes')?.value || '',
@@ -6112,6 +6118,7 @@ function _emTimeMethod() {
   return btn?.dataset.emTimeMethod || 'time';
 }
 function toggleEmTimeMethod(method) {
+  _emEstTouched = true;
   document.querySelectorAll('#em-time-method-toggle [data-em-time-method]').forEach(b =>
     b.classList.toggle('active', b.dataset.emTimeMethod === method));
   // 合計モード
@@ -6208,6 +6215,7 @@ function _calcEndTimeVal(startTime, estimatedHours) {
 }
 
 function _onEmStartHChange() {
+  _emEstTouched = true;
   const h = document.getElementById('em-start-h')?.value;
   const mEl = document.getElementById('em-start-m');
   if (mEl) {
@@ -6219,6 +6227,7 @@ function _onEmStartHChange() {
 }
 
 function _onEmStartMChange() {
+  _emEstTouched = true;
   _emLastEdited = null;
   _recalcEndTime();
 }
@@ -6242,6 +6251,7 @@ function _setEmHoursValue(diffMin) {
 }
 
 function _onEmEndHChange() {
+  _emEstTouched = true;
   const h = document.getElementById('em-end-h')?.value;
   const mEl = document.getElementById('em-end-m');
   if (mEl) {
@@ -6259,6 +6269,7 @@ function _onEmEndHChange() {
 }
 
 function _onEmEndMChange() {
+  _emEstTouched = true;
   _emLastEdited = 'endTime';
   const startTime = _readTimePair('em-start-h','em-start-m');
   const endTime   = _readTimePair('em-end-h','em-end-m');
@@ -6293,6 +6304,7 @@ function _onEmEstimatedHoursChange() {
 // ============================================================
 
 function toggleEmHoursMode(mode) {
+  _emEstTouched = true;
   const total    = document.getElementById('em-hours-total');
   const daily    = document.getElementById('em-hours-daily');
   if (!total || !daily) return;
@@ -6381,17 +6393,17 @@ function _addEmHoursDateRow(dateStr, hours, startTime = null, endTime = null) {
       <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">開始</span>
       <select id="em-ebd-start-h-${rowCount}" style="font-size:12px;width:52px;text-align-last:center" onchange="_onEmEbdStartHChange(this)">${_hourOpts(6, 22, _stP ? _stP[0] : null)}</select>
       <span style="font-size:11px;color:var(--gray-400)">:</span>
-      <select id="em-ebd-start-m-${rowCount}" style="font-size:12px;width:46px"${_stP ? '' : ' disabled'} onchange="_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_stP ? _stP[1] : null)}</select>
+      <select id="em-ebd-start-m-${rowCount}" style="font-size:12px;width:46px"${_stP ? '' : ' disabled'} onchange="_emEstTouched=true;_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_stP ? _stP[1] : null)}</select>
       <span style="font-size:11px;color:var(--gray-500);white-space:nowrap;margin-left:4px">終了</span>
       <select id="em-ebd-end-h-${rowCount}" style="font-size:12px;width:52px;text-align-last:center" onchange="_onEmEbdEndHChange(this)">${_hourOpts(6, 23, _etP ? _etP[0] : null)}</select>
       <span style="font-size:11px;color:var(--gray-400)">:</span>
-      <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'} onchange="_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_etP ? _etP[1] : null)}</select>
+      <select id="em-ebd-end-m-${rowCount}" style="font-size:12px;width:46px"${_etP ? '' : ' disabled'} onchange="_emEstTouched=true;_recalcEbdRowHours(this.closest('[data-em-date]'));_updateEmHoursSum()">${_minOpts(_etP ? _etP[1] : null)}</select>
     </div>
     <div class="em-ebd-duration-inputs" style="display:${_method==='duration'?'flex':'none'};align-items:center;gap:4px">
       <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">時間</span>
-      <select id="em-ebd-dur-h-${rowCount}" style="font-size:12px;width:52px;text-align-last:center" onchange="_updateEmHoursSum()">${_durHourOpts(_dur.h)}</select>
+      <select id="em-ebd-dur-h-${rowCount}" style="font-size:12px;width:52px;text-align-last:center" onchange="_emEstTouched=true;_updateEmHoursSum()">${_durHourOpts(_dur.h)}</select>
       <span style="font-size:11px;color:var(--gray-400)">:</span>
-      <select id="em-ebd-dur-m-${rowCount}" style="font-size:12px;width:46px" onchange="_updateEmHoursSum()">${_durMinOpts(_dur.m)}</select>
+      <select id="em-ebd-dur-m-${rowCount}" style="font-size:12px;width:46px" onchange="_emEstTouched=true;_updateEmHoursSum()">${_durMinOpts(_dur.m)}</select>
     </div>
   `;
   container.appendChild(row);
@@ -6413,6 +6425,7 @@ function _recalcEbdRowHours(row) {
 }
 
 function _onEmEbdStartHChange(sel) {
+  _emEstTouched = true;
   const idx  = sel.id.replace('em-ebd-start-h-', '');
   const mSel = document.getElementById(`em-ebd-start-m-${idx}`);
   if (mSel) {
@@ -6424,6 +6437,7 @@ function _onEmEbdStartHChange(sel) {
   _updateEmHoursSum();
 }
 function _onEmEbdEndHChange(sel) {
+  _emEstTouched = true;
   const idx  = sel.id.replace('em-ebd-end-h-', '');
   const mSel = document.getElementById(`em-ebd-end-m-${idx}`);
   if (mSel) {
@@ -6436,6 +6450,7 @@ function _onEmEbdEndHChange(sel) {
 }
 
 function addEmHoursDate() {
+  _emEstTouched = true;
   _addEmHoursDateRow(todayStr(), 1);
   _updateEmHoursSum();
 }
@@ -6496,9 +6511,9 @@ function _buildEmHoursUI(task, timeOpts, hours) {
         </div>
         <div id="em-duration-inputs" style="display:${_method==='duration'?'flex':'none'};align-items:center;gap:4px">
           <span style="font-size:11px;color:var(--gray-500);white-space:nowrap">時間</span>
-          <select id="em-dur-h" style="font-size:12px;width:52px;text-align-last:center">${_durHourOpts(_dur.h)}</select>
+          <select id="em-dur-h" style="font-size:12px;width:52px;text-align-last:center" onchange="_emEstTouched=true">${_durHourOpts(_dur.h)}</select>
           <span style="font-size:11px;color:var(--gray-400)">:</span>
-          <select id="em-dur-m" style="font-size:12px;width:46px">${_durMinOpts(_dur.m)}</select>
+          <select id="em-dur-m" style="font-size:12px;width:46px" onchange="_emEstTouched=true">${_durMinOpts(_dur.m)}</select>
         </div>
       </div>
     </div>
