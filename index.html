@@ -219,6 +219,8 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
   display: flex; align-items: center; gap: 6px;
   animation: fadeIn .2s ease; position: relative;
 }
+/* ホバー中の行を前後の行より手前に出す（下側フォールバックのツールチップが次行に隠れないようにする） */
+.task-row:hover { z-index: 2; }
 .task-card {
   display: flex; align-items: center; gap: 10px; padding: 10px 14px;
   background: #fff; border: 1px solid var(--border); border-radius: 8px;
@@ -264,6 +266,18 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 }
 .task-action-btn:hover { background: var(--gray-100); color: var(--gray-700); }
 .task-action-btn.danger:hover { background: rgba(181,84,77,.08); color: var(--red-500); }
+/* 独自ツールチップ：ネイティブtitleは表示遅延がOS依存で不安定なため自前実装に置き換え */
+.task-action-btn[data-tip] { position: relative; }
+.task-action-btn[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%) translateY(-6px);
+  background: #fff; color: var(--ink); border: 1px solid var(--gray-200); border-radius: 6px;
+  padding: 4px 8px; font-size: 11px; font-weight: 500; white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  opacity: 0; pointer-events: none; transition: opacity .1s ease; z-index: 5;
+}
+.task-action-btn[data-tip]:hover::after { opacity: 1; transition-delay: .3s; }
+.task-action-btn[data-tip].tip-below::after { bottom: auto; top: 100%; transform: translateX(-50%) translateY(6px); }
 
 /* ── Task Edit Modal ── */
 .em-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
@@ -1844,10 +1858,27 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ボタン上方の表示余白が足りない場合（スクロールコンテナの最上部行・モバイルの固定ヘッダー直下など）はツールチップを下側に出す
+// クリップ境界は viewport ではなく「最も近いスクロール祖先の上端」と「固定ヘッダーの下端」のうち、より下にある方
+function _positionTip(btn) {
+  let anc = btn.parentElement;
+  while (anc && anc !== document.body) {
+    const ov = getComputedStyle(anc).overflowY;
+    if (ov === 'auto' || ov === 'scroll') break;
+    anc = anc.parentElement;
+  }
+  const ancTop = (anc && anc !== document.body) ? anc.getBoundingClientRect().top : 0;
+  const header = document.querySelector('header');
+  const headerBottom = header ? header.getBoundingClientRect().bottom : 0;
+  const boundary = Math.max(ancTop, headerBottom);
+  const r = btn.getBoundingClientRect();
+  btn.classList.toggle('tip-below', (r.top - boundary) < 40);
+}
+
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-20-r74'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-20-r75'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2707,16 +2738,16 @@ function taskRow(task, d) {
         </div>
         <div class="task-time"${isUnscheduled ? ' style="width:40px"' : ''}>${hoursBadge}</div>
         <div class="task-actions">
-          <button class="task-action-btn" onclick="openEditModal('${task.id}');event.stopPropagation()" title="編集">
+          <button class="task-action-btn" onclick="openEditModal('${task.id}');event.stopPropagation()" onmouseenter="_positionTip(this)" data-tip="編集" aria-label="編集">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10.5h2.5l5.5-5.5-2.5-2.5L2 8v2.5zm6.5-6.5 1 1"/></svg>
           </button>
-          ${!isSlot ? `<button class="task-action-btn" onclick="cloneTask('${task.id}');event.stopPropagation()" title="複製">
+          ${!isSlot ? `<button class="task-action-btn" onclick="cloneTask('${task.id}');event.stopPropagation()" onmouseenter="_positionTip(this)" data-tip="複製" aria-label="複製">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="4.5" width="7" height="7" rx="1"/><path d="M1.5 8.5V2.5a1 1 0 0 1 1-1h6"/></svg>
           </button>` : ''}
-          ${!isUnscheduled ? `<button class="task-action-btn" onclick="taskToNote('${task.id}');event.stopPropagation()" title="Noteに複製 →">
+          ${!isUnscheduled ? `<button class="task-action-btn" onclick="taskToNote('${task.id}');event.stopPropagation()" onmouseenter="_positionTip(this)" data-tip="Noteに複製 →" aria-label="Noteに複製">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.5h9M8 3.5l3 3-3 3"/></svg>
           </button>` : ''}
-          <button class="task-action-btn danger" onclick="${isSlot ? `deleteSlotTask('${task.id}','${slotDate}',${task._slotIdx})` : `deleteTaskWithRecurringCheck('${task.id}')`};event.stopPropagation()" title="削除">
+          <button class="task-action-btn danger" onclick="${isSlot ? `deleteSlotTask('${task.id}','${slotDate}',${task._slotIdx})` : `deleteTaskWithRecurringCheck('${task.id}')`};event.stopPropagation()" onmouseenter="_positionTip(this)" data-tip="削除" aria-label="削除">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.5 2.5l8 8M10.5 2.5l-8 8"/></svg>
           </button>
         </div>
