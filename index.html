@@ -1892,7 +1892,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-21-r76'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-21-r77'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2510,8 +2510,9 @@ function _renderDateSection(date, tasks, d, isPast) {
   return `
     <div class="date-section" data-section-date="${date}">
       <div class="${hdrStyle}" onclick="toggleSec('${date}')"
-        ondragover="handleDragOver(event)" ondrop="handleDropOnSection(event,'${date}')">
-        <span class="section-toggle ${col?'closed':''}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
+        ondragover="handleDragOver(event)" ondrop="handleDropOnSection(event,'${date}')"
+        data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">
+        <span class="section-toggle ${col?'closed':''}">▼</span>
         <span ${textStyle ? `style="${textStyle}"` : ''}>${label}</span>
         <span class="section-rule"></span>
         <span style="color:var(--gray-400);font-weight:400;font-size:12px">${tasks.filter(x=>x.type!=='divider').length}件</span>
@@ -2574,8 +2575,8 @@ function renderTaskList() {
 
   html += `
     <div class="past-section">
-      <div class="past-section-header" onclick="togglePastSection()">
-        <span class="section-toggle ${_pastShown?'':'closed'}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
+      <div class="past-section-header" onclick="togglePastSection()" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">
+        <span class="section-toggle ${_pastShown?'':'closed'}">▼</span>
         <span style="font-size:13px;font-weight:600;color:var(--gray-500)">過去のタスク</span>
       </div>`;
 
@@ -2612,8 +2613,8 @@ function renderTaskList() {
 
   html += `
     <div class="future-section">
-      <div class="past-section-header" onclick="toggleFutureSection()">
-        <span class="section-toggle ${_futureShown ? '' : 'closed'}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
+      <div class="past-section-header" onclick="toggleFutureSection()" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">
+        <span class="section-toggle ${_futureShown ? '' : 'closed'}">▼</span>
         <span style="font-size:13px;font-weight:600;color:var(--gray-500)">今後のタスク</span>
       </div>`;
 
@@ -2983,7 +2984,6 @@ function renderTimeline(d) {
     const timeLine = `<div style="font-size:10px;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${timeLabel}</div>`;
     return `<div class="timeline-task${done ? ' done' : ''}" data-id="${task.id}"
       style="${style};padding:${pad};background:${bgColor};color:${textColor};border:1.5px solid ${bdColor};--tl-handle-color:${bdColor}"
-      data-tip="クリックで編集" aria-label="クリックで編集" onmouseenter="_positionTip(this)"
       onclick="_onTlTaskClick(event,'${task.id}'${task._slotIdx != null ? `,${task._slotIdx}` : ''})">
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:18px">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
@@ -3016,8 +3016,8 @@ function renderTimeline(d) {
 
   return `<div style="padding:12px">
     <div class="timeline-unscheduled${unschedCol ? ' collapsed' : ''}" style="margin-top:0;border-top:none;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:12px;padding-top:0">
-      <div class="timeline-unscheduled-title" onclick="toggleSec('_tlUnsched')">
-        <span class="section-toggle ${unschedCol ? 'closed' : ''}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
+      <div class="timeline-unscheduled-title" onclick="toggleSec('_tlUnsched')" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">
+        <span class="section-toggle ${unschedCol ? 'closed' : ''}">▼</span>
         <span>時刻未設定 (${noTime.length}件)</span>
       </div>
       ${unschedCol ? '' : unschedCards}
@@ -3050,8 +3050,8 @@ function renderMultiDay() {
   if (multiTasks.length === 0) {
     const col = collapsedSections['_multiday'];
     el.innerHTML = `<div class="multiday-section">
-      <div class="multiday-header" onclick="toggleSec('_multiday')">
-        <span class="section-toggle ${col?'closed':''}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
+      <div class="multiday-header" onclick="toggleSec('_multiday')" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">
+        <span class="section-toggle ${col?'closed':''}">▼</span>
         <span>分割タスク</span>
         <span style="color:var(--gray-400);font-weight:400">0件</span>
       </div>
@@ -3107,8 +3107,8 @@ function renderMultiDay() {
 
   el.innerHTML = `
     <div class="multiday-section">
-      <div class="multiday-header" onclick="toggleSec('_multiday')">
-        <span class="section-toggle ${col?'closed':''}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
+      <div class="multiday-header" onclick="toggleSec('_multiday')" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">
+        <span class="section-toggle ${col?'closed':''}">▼</span>
         <span>分割タスク</span>
         <span style="color:var(--gray-400);font-weight:400">${multiTasks.length}件</span>
       </div>
@@ -3208,8 +3208,9 @@ function renderNotes() {
     <div class="notes-list">${noteCards || `<div style="color:var(--gray-400);font-size:12px;text-align:center;padding:16px">メモがありません</div>`}</div>
     <div class="someday-section">
       <div class="someday-header" onclick="toggleSec('_unsched')"
-        ondragover="handleDragOver(event)" ondrop="handleDropOnSection(event,'')">
-        <span class="section-toggle ${somedayCol?'closed':''}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
+        ondragover="handleDragOver(event)" ondrop="handleDropOnSection(event,'')"
+        data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">
+        <span class="section-toggle ${somedayCol?'closed':''}">▼</span>
         <span>📌 いつかやる</span>
         <span class="note-meta-spacer"></span>
         <span style="color:var(--gray-400);font-weight:400">${somedayCount}件</span>
