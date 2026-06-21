@@ -266,9 +266,11 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 }
 .task-action-btn:hover { background: var(--gray-100); color: var(--gray-700); }
 .task-action-btn.danger:hover { background: rgba(181,84,77,.08); color: var(--red-500); }
-/* 独自ツールチップ：ネイティブtitleは表示遅延がOS依存で不安定なため自前実装に置き換え */
-.task-action-btn[data-tip] { position: relative; }
-.task-action-btn[data-tip]::after {
+/* 独自ツールチップ：ネイティブtitleは表示遅延がOS依存で不安定なため自前実装に置き換え
+   汎用化（2026-06-21 r76）：.task-action-btn 限定 → [data-tip] 全般に拡張。既存4ボタンは
+   そのまま [data-tip] にマッチするため見た目・挙動は不変。新規対象要素はこのセレクタに乗る。 */
+[data-tip] { position: relative; }
+[data-tip]::after {
   content: attr(data-tip);
   position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%) translateY(-6px);
   background: #fff; color: var(--ink); border: 1px solid var(--gray-200); border-radius: 6px;
@@ -276,8 +278,15 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
   box-shadow: 0 2px 8px rgba(0,0,0,.12);
   opacity: 0; pointer-events: none; transition: opacity .1s ease; z-index: 5;
 }
-.task-action-btn[data-tip]:hover::after { opacity: 1; transition-delay: .3s; }
-.task-action-btn[data-tip].tip-below::after { bottom: auto; top: 100%; transform: translateX(-50%) translateY(6px); }
+[data-tip]:hover::after { opacity: 1; transition-delay: .3s; }
+[data-tip].tip-below::after { bottom: auto; top: 100%; transform: translateX(-50%) translateY(6px); }
+/* 左右クリップ対応：画面端付近の要素（.drag-handle等）で吹き出しが画面外に切れないよう左右寄せ */
+[data-tip].tip-left::after { left: 0; transform: translateX(0) translateY(-6px); }
+[data-tip].tip-right::after { left: auto; right: 0; transform: translateX(0) translateY(-6px); }
+[data-tip].tip-below.tip-left::after { transform: translateX(0) translateY(6px); }
+[data-tip].tip-below.tip-right::after { transform: translateX(0) translateY(6px); }
+/* D&D中はホバー由来のツールチップを即座に抑制（既存 body.drag-active を読むのみ、JSタイマーは追加しない） */
+body.drag-active [data-tip]:hover::after { opacity: 0 !important; transition-delay: 0s; }
 
 /* ── Task Edit Modal ── */
 .em-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
@@ -1861,6 +1870,7 @@ function esc(s) {
 // ボタン上方の表示余白が足りない場合（スクロールコンテナの最上部行・モバイルの固定ヘッダー直下など）はツールチップを下側に出す
 // クリップ境界は viewport ではなく「最も近いスクロール祖先の上端」と「固定ヘッダーの下端」のうち、より下にある方
 function _positionTip(btn) {
+  const EDGE_MARGIN = 80; // 画面端からこの距離未満なら吹き出しを左右に寄せる（::afterは実DOM非在で幅測定不可のため簡易閾値方式）
   let anc = btn.parentElement;
   while (anc && anc !== document.body) {
     const ov = getComputedStyle(anc).overflowY;
@@ -1873,12 +1883,16 @@ function _positionTip(btn) {
   const boundary = Math.max(ancTop, headerBottom);
   const r = btn.getBoundingClientRect();
   btn.classList.toggle('tip-below', (r.top - boundary) < 40);
+  const isLeft = r.left < EDGE_MARGIN;
+  const isRight = r.right > window.innerWidth - EDGE_MARGIN;
+  btn.classList.toggle('tip-left', isLeft && !isRight);
+  btn.classList.toggle('tip-right', isRight && !isLeft);
 }
 
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-20-r75'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-21-r76'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2442,7 +2456,7 @@ function dividerRow(div) {
       ondragend="handleDragEnd(event)"
       ondragover="handleDragOver(event)"
       ondrop="handleDropOnTask(event,'${div.id}','${div.scheduledDate || ''}')">
-      <span class="drag-handle">⋮⋮</span>
+      <span class="drag-handle" data-tip="ドラッグで移動" aria-label="ドラッグで移動" onmouseenter="_positionTip(this)">⋮⋮</span>
       <div class="divider-line"></div>
       <button class="divider-delete" onclick="deleteDivider('${div.id}');event.stopPropagation()" title="削除">×</button>
     </div>`;
@@ -2497,7 +2511,7 @@ function _renderDateSection(date, tasks, d, isPast) {
     <div class="date-section" data-section-date="${date}">
       <div class="${hdrStyle}" onclick="toggleSec('${date}')"
         ondragover="handleDragOver(event)" ondrop="handleDropOnSection(event,'${date}')">
-        <span class="section-toggle ${col?'closed':''}">▼</span>
+        <span class="section-toggle ${col?'closed':''}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
         <span ${textStyle ? `style="${textStyle}"` : ''}>${label}</span>
         <span class="section-rule"></span>
         <span style="color:var(--gray-400);font-weight:400;font-size:12px">${tasks.filter(x=>x.type!=='divider').length}件</span>
@@ -2561,7 +2575,7 @@ function renderTaskList() {
   html += `
     <div class="past-section">
       <div class="past-section-header" onclick="togglePastSection()">
-        <span class="section-toggle ${_pastShown?'':'closed'}">▼</span>
+        <span class="section-toggle ${_pastShown?'':'closed'}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
         <span style="font-size:13px;font-weight:600;color:var(--gray-500)">過去のタスク</span>
       </div>`;
 
@@ -2599,7 +2613,7 @@ function renderTaskList() {
   html += `
     <div class="future-section">
       <div class="past-section-header" onclick="toggleFutureSection()">
-        <span class="section-toggle ${_futureShown ? '' : 'closed'}">▼</span>
+        <span class="section-toggle ${_futureShown ? '' : 'closed'}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
         <span style="font-size:13px;font-weight:600;color:var(--gray-500)">今後のタスク</span>
       </div>`;
 
@@ -2669,14 +2683,14 @@ function taskRow(task, d) {
   const _planIcon = '<span style="font-size:14px;margin-right:3px">◷</span>';
   const _doneIcon = '<span style="margin-right:2px">✓</span>';
   const hoursBadge = isUnscheduled
-    ? `<button class="tag-hours" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">${_planIcon}${_fmtHorDash(task.estimatedHours)}</button>`
+    ? `<button class="tag-hours" data-tip="クリックで予定/実績を編集" aria-label="クリックで予定/実績を編集" onmouseenter="_positionTip(this)" onclick="${_somedayClickGuard}openEstModal('${task.id}');event.stopPropagation()">${_planIcon}${_fmtHorDash(task.estimatedHours)}</button>`
     : effectiveDone
     ? (partialOnDate > 0
       ? `<span class="tag-hours" style="cursor:default;color:var(--green-600)">${_doneIcon}${_fmtH(partialOnDate)}</span>`
       : `<span class="tag-hours" style="cursor:default;color:var(--green-600)">${_planIcon}${_fmtHorDash(slotH)}</span>`)
     : partialOnDate > 0
-    ? `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()" style="color:var(--amber-500)">${_doneIcon}${_fmtH(partialOnDate)} / ${_planIcon}${_fmtHorDash(slotH)}</button>`
-    : `<button class="tag-hours" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()">${_planIcon}${_fmtHorDash(slotH)}</button>`;
+    ? `<button class="tag-hours" data-tip="クリックで予定/実績を編集" aria-label="クリックで予定/実績を編集" onmouseenter="_positionTip(this)" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()" style="color:var(--amber-500)">${_doneIcon}${_fmtH(partialOnDate)} / ${_planIcon}${_fmtHorDash(slotH)}</button>`
+    : `<button class="tag-hours" data-tip="クリックで予定/実績を編集" aria-label="クリックで予定/実績を編集" onmouseenter="_positionTip(this)" onclick="openPartialModal('${task.id}','${slotDate}',${slotIdxParam});event.stopPropagation()">${_planIcon}${_fmtHorDash(slotH)}</button>`;
   // ステータスバッジ（いつかやる欄・showStatus:false の作業種類は非表示、完了時は「● 完了」を表示）
   const wtShowStatus = wt ? (wt.showStatus !== false) : true;
   const statusLabel = { pending: '未着手', in_progress: '進行中', waiting: '待ち', completed: '完了' };
@@ -2709,8 +2723,8 @@ function taskRow(task, d) {
       ondragover="handleDragOver(event)"
       ondrop="handleDropOnTask(event,'${task.id}','${isSlot ? slotDate : (task.scheduledDate || '')}',${isSlot ? task._slotIdx : -1})">
       <div class="task-card">
-        <span class="drag-handle">⋮⋮</span>
-        ${isUnscheduled ? '' : `<button class="task-check${effectiveDone?' done':''}"${(!effectiveDone && proj) ? ` style="border-color:${proj.color}"` : ''} onclick="${_somedayClickGuard}${isSlot ? `toggleSlotComplete('${task.id}',${task._slotIdx})` : `toggleTask('${task.id}')`}">
+        <span class="drag-handle" data-tip="ドラッグで並べ替え" aria-label="ドラッグで並べ替え" onmouseenter="_positionTip(this)">⋮⋮</span>
+        ${isUnscheduled ? '' : `<button class="task-check${effectiveDone?' done':''}"${(!effectiveDone && proj) ? ` style="border-color:${proj.color}"` : ''} data-tip="完了/未完了を切り替え" aria-label="完了/未完了を切り替え" onmouseenter="_positionTip(this)" onclick="${_somedayClickGuard}${isSlot ? `toggleSlotComplete('${task.id}',${task._slotIdx})` : `toggleTask('${task.id}')`}">
           <svg viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><path d="M2 5l2.5 2.5L8 3"/></svg>
         </button>`}
         <div class="task-title-wrap">
@@ -2919,7 +2933,7 @@ function renderTimeline(d) {
     const color  = ev._calBg || '#4285F4';
     return `<div class="gcal-event" style="left:${taskColPct}%;right:0;top:${top}px;height:${height}px;background:${color}22;border-left:3px solid ${color};color:${color};pointer-events:none">
       <span class="gcal-event-title">${esc(ev.summary || '(タイトルなし)')}</span>
-      <button class="gcal-import-btn" data-ev-id="${esc(ev.id)}" onclick="openGCalImportModal(this.dataset.evId)" style="pointer-events:auto;background:${color}">＋</button>
+      <button class="gcal-import-btn" data-ev-id="${esc(ev.id)}" data-tip="タスクとして取り込む" aria-label="タスクとして取り込む" onmouseenter="_positionTip(this)" onclick="openGCalImportModal(this.dataset.evId)" style="pointer-events:auto;background:${color}">＋</button>
     </div>`;
   }
   const gcalBlocks = visibleGcalEvents.map(gcalBlock).join('');
@@ -2969,6 +2983,7 @@ function renderTimeline(d) {
     const timeLine = `<div style="font-size:10px;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${timeLabel}</div>`;
     return `<div class="timeline-task${done ? ' done' : ''}" data-id="${task.id}"
       style="${style};padding:${pad};background:${bgColor};color:${textColor};border:1.5px solid ${bdColor};--tl-handle-color:${bdColor}"
+      data-tip="クリックで編集" aria-label="クリックで編集" onmouseenter="_positionTip(this)"
       onclick="_onTlTaskClick(event,'${task.id}'${task._slotIdx != null ? `,${task._slotIdx}` : ''})">
       <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:18px">${esc(task.title)}</div>
       ${showSub ? subLine : ''}
@@ -2992,7 +3007,7 @@ function renderTimeline(d) {
   const unschedCards = noTime.map(task => {
     const proj = d.projects.find(p => p.id === task.projectId);
     const done = task.status === 'completed';
-    return `<div class="timeline-unsched-task${done ? ' done' : ''}" data-id="${task.id}" onclick="_onTlUnschedTaskClick(event,'${task.id}')">
+    return `<div class="timeline-unsched-task${done ? ' done' : ''}" data-id="${task.id}" data-tip="クリックで編集" aria-label="クリックで編集" onmouseenter="_positionTip(this)" onclick="_onTlUnschedTaskClick(event,'${task.id}')">
       <span style="font-size:12px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(task.title)}</span>
       ${proj ? `<span class="task-tag" style="background:${proj.color}22;color:${proj.color};flex-shrink:0">${esc(proj.name)}</span>` : ''}
       <span style="font-size:11px;color:var(--gray-400);flex-shrink:0">${_fmtHorDash(task.estimatedHours)}</span>
@@ -3002,7 +3017,7 @@ function renderTimeline(d) {
   return `<div style="padding:12px">
     <div class="timeline-unscheduled${unschedCol ? ' collapsed' : ''}" style="margin-top:0;border-top:none;margin-bottom:16px;border-bottom:1px solid var(--gray-100);padding-bottom:12px;padding-top:0">
       <div class="timeline-unscheduled-title" onclick="toggleSec('_tlUnsched')">
-        <span class="section-toggle ${unschedCol ? 'closed' : ''}">▼</span>
+        <span class="section-toggle ${unschedCol ? 'closed' : ''}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
         <span>時刻未設定 (${noTime.length}件)</span>
       </div>
       ${unschedCol ? '' : unschedCards}
@@ -3036,7 +3051,7 @@ function renderMultiDay() {
     const col = collapsedSections['_multiday'];
     el.innerHTML = `<div class="multiday-section">
       <div class="multiday-header" onclick="toggleSec('_multiday')">
-        <span class="section-toggle ${col?'closed':''}">▼</span>
+        <span class="section-toggle ${col?'closed':''}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
         <span>分割タスク</span>
         <span style="color:var(--gray-400);font-weight:400">0件</span>
       </div>
@@ -3076,7 +3091,7 @@ function renderMultiDay() {
 
     return `<div class="multiday-card">
       <div class="multiday-card-row">
-        <span class="multiday-toggle" onclick="toggleMultiDay('${task.id}')">${toggleIcon}</span>
+        <span class="multiday-toggle" data-tip="クリックで日別詳細を開閉" aria-label="クリックで日別詳細を開閉" onmouseenter="_positionTip(this)" onclick="toggleMultiDay('${task.id}')">${toggleIcon}</span>
         <span class="multiday-title">${esc(task.title)}</span>
         <span class="multiday-meta">${doneDays}/${totalDays}</span>
         ${(() => {
@@ -3093,7 +3108,7 @@ function renderMultiDay() {
   el.innerHTML = `
     <div class="multiday-section">
       <div class="multiday-header" onclick="toggleSec('_multiday')">
-        <span class="section-toggle ${col?'closed':''}">▼</span>
+        <span class="section-toggle ${col?'closed':''}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
         <span>分割タスク</span>
         <span style="color:var(--gray-400);font-weight:400">${multiTasks.length}件</span>
       </div>
@@ -3194,7 +3209,7 @@ function renderNotes() {
     <div class="someday-section">
       <div class="someday-header" onclick="toggleSec('_unsched')"
         ondragover="handleDragOver(event)" ondrop="handleDropOnSection(event,'')">
-        <span class="section-toggle ${somedayCol?'closed':''}">▼</span>
+        <span class="section-toggle ${somedayCol?'closed':''}" data-tip="クリックで開閉" aria-label="クリックで開閉" onmouseenter="_positionTip(this)">▼</span>
         <span>📌 いつかやる</span>
         <span class="note-meta-spacer"></span>
         <span style="color:var(--gray-400);font-weight:400">${somedayCount}件</span>
