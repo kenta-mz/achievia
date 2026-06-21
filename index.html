@@ -1870,7 +1870,7 @@ function esc(s) {
 // ボタン上方の表示余白が足りない場合（スクロールコンテナの最上部行・モバイルの固定ヘッダー直下など）はツールチップを下側に出す
 // クリップ境界は viewport ではなく「最も近いスクロール祖先の上端」と「固定ヘッダーの下端」のうち、より下にある方
 function _positionTip(btn) {
-  const EDGE_MARGIN = 80; // 画面端からこの距離未満なら吹き出しを左右に寄せる（::afterは実DOM非在で幅測定不可のため簡易閾値方式）
+  const EDGE_MARGIN = 80; // コンテナ端からこの距離未満なら吹き出しを左右に寄せる（::afterは実DOM非在で幅測定不可のため簡易閾値方式）
   let anc = btn.parentElement;
   while (anc && anc !== document.body) {
     const ov = getComputedStyle(anc).overflowY;
@@ -1881,10 +1881,20 @@ function _positionTip(btn) {
   const header = document.querySelector('header');
   const headerBottom = header ? header.getBoundingClientRect().bottom : 0;
   const boundary = Math.max(ancTop, headerBottom);
+  // 横方向のクリップ境界も viewport ではなく「最も近い overflow-x が visible でない祖先」の左右端で判定する。
+  // アプリ幅が画面より狭い場合、コンテナ右端に近い要素（GCal取り込みボタン＝.gcal-event right:0 等）で
+  // 中央配置の吹き出しがコンテナ右端からはみ出して横スクロールが出るのを防ぐ（縦の boundary と同じ原理に揃える）。
+  let hanc = btn.parentElement;
+  while (hanc && hanc !== document.body) {
+    const ovx = getComputedStyle(hanc).overflowX;
+    if (ovx === 'auto' || ovx === 'scroll' || ovx === 'hidden') break;
+    hanc = hanc.parentElement;
+  }
+  const hr = (hanc && hanc !== document.body) ? hanc.getBoundingClientRect() : { left: 0, right: window.innerWidth };
   const r = btn.getBoundingClientRect();
   btn.classList.toggle('tip-below', (r.top - boundary) < 40);
-  const isLeft = r.left < EDGE_MARGIN;
-  const isRight = r.right > window.innerWidth - EDGE_MARGIN;
+  const isLeft = r.left < hr.left + EDGE_MARGIN;
+  const isRight = r.right > hr.right - EDGE_MARGIN;
   btn.classList.toggle('tip-left', isLeft && !isRight);
   btn.classList.toggle('tip-right', isRight && !isLeft);
 }
@@ -1892,7 +1902,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-21-r77'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-21-r78'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
