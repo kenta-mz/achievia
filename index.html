@@ -239,7 +239,9 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 .task-check.done { background: var(--green-500); border-color: var(--green-500); }
 .task-check svg { display: none; width: 10px; height: 10px; }
 .task-check.done svg { display: block; }
-.task-title-wrap { flex: 1; min-width: 0; overflow: hidden; }
+/* overflow:hidden を子(.task-title/.task-memo-preview)側に委ね、wrap自身は切らない。
+   data-tipツールチップ(::after)をwrapに付けるため、wrapがクリップすると吹き出しが消える（r83） */
+.task-title-wrap { flex: 1; min-width: 0; }
 .task-title {
   font-size: 13px; cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -288,6 +290,10 @@ body.tl-view .tl-drop-unsched-zone { position: sticky; top: 0; z-index: 5; }
 [data-tip].tip-below.tip-right::after { transform: translateX(0) translateY(6px); }
 /* D&D中はホバー由来のツールチップを即座に抑制（既存 body.drag-active を読むのみ、JSタイマーは追加しない） */
 body.drag-active [data-tip]:hover::after { opacity: 0 !important; transition-delay: 0s; }
+/* タイムラインカードの「クリックで編集」は、別動作の子コントロール（完了/リサイズ）ホバー時は抑制（r83） */
+.timeline-task:has(.tl-check-btn:hover)::after,
+.timeline-task:has(.tl-resize-handle:hover)::after,
+.timeline-task:has(.tl-resize-top-handle:hover)::after { opacity: 0 !important; transition-delay: 0s; }
 
 /* ── Task Edit Modal ── */
 .em-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
@@ -356,10 +362,13 @@ body.drag-active [data-tip]:hover::after { opacity: 0 !important; transition-del
 }
 .timeline-task {
   position: absolute; background: var(--ink); color: #fff;
-  border-radius: 6px; padding: 5px 8px; font-size: 12px; overflow: hidden;
+  border-radius: 6px; padding: 5px 8px; font-size: 12px;
   box-sizing: border-box; cursor: pointer; transition: filter .15s;
   touch-action: none; z-index: 2;
 }
+/* カード自身は overflow:visible（data-tipの::afterを逃がす）。テキストの縦はみ出しは
+   内側ラッパーでclipし、短いカードで隣接カードに被らないようにする（r83・Codex P1対策） */
+.tl-content { position: absolute; inset: 0; overflow: hidden; box-sizing: border-box; }
 .gcal-event {
   position: absolute;
   border-radius: 3px; padding: 2px 6px 2px 8px;
@@ -385,7 +394,7 @@ body.drag-active [data-tip]:hover::after { opacity: 0 !important; transition-del
   50% { background: var(--accent-light, #e8f4ff); }
 }
 .task-flash { animation: task-flash 1s ease; }
-.timeline-task:hover { filter: brightness(1.12); }
+.timeline-task:hover { filter: brightness(1.12); z-index: 4; }
 .timeline-task.done { opacity: 0.4; }
 .tl-check-btn {
   position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
@@ -467,7 +476,9 @@ body.drag-active [data-tip]:hover::after { opacity: 0 !important; transition-del
 /* hover中のカードを前面化：tip-belowのツールチップ(::after)がカード下の隙間に出るとき、
    note-cardはposition:relativeでDOM順描画のため後続カードに隠れる。z-indexで前面に出す（r81） */
 .note-card:hover { border-color: var(--gray-300); z-index: 5; }
-.note-preview { font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
+/* 省略表示は内側 .ellip-1 に委ね、.note-preview 自身は切らない（data-tipの::afterを切らないため・r83） */
+.note-preview { font-size: 12px; color: var(--ink); margin-bottom: 4px; }
+.ellip-1 { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note-meta { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--gray-500); flex-wrap: wrap; }
 .note-expanded textarea {
   width: 100%; border: none; outline: none; font-size: 12px;
@@ -1914,7 +1925,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-22-r81'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-22-r83'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2750,7 +2761,7 @@ function taskRow(task, d) {
         ${isUnscheduled ? '' : `<button class="task-check${effectiveDone?' done':''}"${(!effectiveDone && proj) ? ` style="border-color:${proj.color}"` : ''} data-tip="完了/未完了を切り替え" aria-label="完了/未完了を切り替え" onmouseenter="_positionTip(this)" onclick="${_somedayClickGuard}${isSlot ? `toggleSlotComplete('${task.id}',${task._slotIdx})` : `toggleTask('${task.id}')`}">
           <svg viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><path d="M2 5l2.5 2.5L8 3"/></svg>
         </button>`}
-        <div class="task-title-wrap">
+        <div class="task-title-wrap"${editing ? '' : ' data-tip="クリックで編集" aria-label="クリックで編集" onmouseenter="_positionTip(this)"'}>
           ${editing
             ? `<input type="text" class="task-title-input" data-edit="${task.id}" value="${esc(task.title)}"
                  oninput="_cacheEdit('${task.id}','title',this.value)"
@@ -3005,11 +3016,14 @@ function renderTimeline(d) {
       : '';
     const timeLine = `<div style="font-size:10px;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${timeLabel}</div>`;
     return `<div class="timeline-task${done ? ' done' : ''}" data-id="${task.id}"
-      style="${style};padding:${pad};background:${bgColor};color:${textColor};border:1.5px solid ${bdColor};--tl-handle-color:${bdColor}"
+      style="${style};background:${bgColor};color:${textColor};border:1.5px solid ${bdColor};--tl-handle-color:${bdColor}"
+      onmouseenter="_positionTip(this)" data-tip="クリックで編集" aria-label="クリックで編集"
       onclick="_onTlTaskClick(event,'${task.id}'${task._slotIdx != null ? `,${task._slotIdx}` : ''})">
-      <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:18px">${esc(task.title)}</div>
-      ${showSub ? subLine : ''}
-      ${showAll ? timeLine : (!showSub ? timeLine : (proj ? '' : timeLine))}
+      <div class="tl-content" style="padding:${pad}">
+        <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:18px">${esc(task.title)}</div>
+        ${showSub ? subLine : ''}
+        ${showAll ? timeLine : (!showSub ? timeLine : (proj ? '' : timeLine))}
+      </div>
       <button class="tl-check-btn${done ? ' done' : ''}" onclick="event.stopPropagation();${task._slotIdx != null ? `toggleSlotComplete('${task.id}',${task._slotIdx})` : `_onTlCheck('${task.id}')`}" title="${done ? '完了を取り消す' : '完了にする'}">
         <svg viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><polyline points="2,5 4,7.5 8,2.5"/></svg>
       </button>
@@ -3192,7 +3206,7 @@ function renderNotes() {
         ondragover="handleNoteDragOver(event,'${note.id}')"
         ondrop="handleNoteDrop(event,'${note.id}')"
         onclick="expandNote('${note.id}')">
-        <div class="note-preview">${esc(noteTitle)}</div>
+        <div class="note-preview" onmouseenter="_positionTip(this)" data-tip="クリックで編集" aria-label="クリックで編集"><span class="ellip-1">${esc(noteTitle)}</span></div>
         <div class="note-meta-row">
           ${proj ? `<span class="tag" style="background:${proj.color}20;color:${proj.color}">${esc(proj.name)}</span>` : ''}
           ${wt ? `<span class="tag" style="background:${wt.color}20;color:${wt.color}">${esc(wt.label)}</span>` : ''}
