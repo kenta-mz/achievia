@@ -1891,7 +1891,16 @@ function _positionTip(btn) {
     if (ovx === 'auto' || ovx === 'scroll' || ovx === 'hidden') break;
     hanc = hanc.parentElement;
   }
-  const hr = (hanc && hanc !== document.body) ? hanc.getBoundingClientRect() : { left: 0, right: window.innerWidth };
+  let hr;
+  if (hanc && hanc !== document.body) {
+    hr = hanc.getBoundingClientRect();
+  } else {
+    // overflow-x 祖先が無いタブ（カレンダー/設定）はコンテンツ幅コンテナ main がクリップ境界。
+    // main は overflow:visible のため上のループでヒットしないが、max-width:1100px センタリングで
+    // 「コンテナ右端 ≠ 画面右端」になるため main の rect を境界に使う（落とし穴4）。
+    const mainEl = btn.closest('main');
+    hr = mainEl ? mainEl.getBoundingClientRect() : { left: 0, right: window.innerWidth };
+  }
   const r = btn.getBoundingClientRect();
   btn.classList.toggle('tip-below', (r.top - boundary) < 40);
   const isLeft = r.left < hr.left + EDGE_MARGIN;
@@ -1903,7 +1912,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-21-r79'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-22-r80'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -3187,9 +3196,9 @@ function renderNotes() {
           ${wt ? `<span class="tag" style="background:${wt.color}20;color:${wt.color}">${esc(wt.label)}</span>` : ''}
           <span style="font-size:10px;color:var(--gray-500)">${fmtDate(note.updatedAt)}</span>
           <span class="note-meta-spacer"></span>
-          <button class="note-icon-btn" onclick="expandNote('${note.id}');event.stopPropagation()" title="編集">${iconEdit}</button>
-          <button class="note-icon-btn" onclick="noteToTask('${note.id}');event.stopPropagation()" title="Taskに複製 ←">${iconToTask}</button>
-          <button class="note-icon-btn danger" onclick="deleteNote('${note.id}');event.stopPropagation()" title="削除">${iconDelete}</button>
+          <button class="note-icon-btn" onclick="expandNote('${note.id}');event.stopPropagation()" data-tip="編集" aria-label="編集" onmouseenter="_positionTip(this)">${iconEdit}</button>
+          <button class="note-icon-btn" onclick="noteToTask('${note.id}');event.stopPropagation()" data-tip="Taskに複製 ←" aria-label="Taskに複製 ←" onmouseenter="_positionTip(this)">${iconToTask}</button>
+          <button class="note-icon-btn danger" onclick="deleteNote('${note.id}');event.stopPropagation()" data-tip="削除" aria-label="削除" onmouseenter="_positionTip(this)">${iconDelete}</button>
         </div>
         ${noteBody ? `<div class="note-body-preview">${esc(noteBody)}</div>` : ''}
       </div>`;
@@ -3444,7 +3453,7 @@ function renderCalendar() {
       const doneCount = dayTasks.filter(x => x.status === 'completed').length;
       const review = (d.reviews||[]).find(r => r.date === ds);
       const dots = dayTasks.slice(0,5).map(x => `<div class="cal-dot${x.status==='completed'?' done':''}"></div>`).join('');
-      return `<div class="cal-cell${ds===t?' today':''}${!cur?' other-month':''}" onclick="openDayDetail('${ds}')">
+      return `<div class="cal-cell${ds===t?' today':''}${!cur?' other-month':''}" onclick="openDayDetail('${ds}')" data-tip="クリックで日別詳細" aria-label="クリックで日別詳細" onmouseenter="_positionTip(this)">
         <div class="cal-day-num">${new Date(ds+'T00:00:00').getDate()}</div>
         ${dayTasks.length ? `<div class="cal-dot-row">${dots}</div><div class="cal-count">${doneCount}/${dayTasks.length}</div>` : ''}
         ${review ? `<div class="cal-score">★${review.score}</div>` : ''}
@@ -3775,6 +3784,7 @@ function handleSettingsDragStart(e, type, id) {
   _settingsDragId   = id;
   e.dataTransfer.effectAllowed = 'move';
   e.currentTarget.style.opacity = '0.4';
+  document.body.classList.add('drag-active');
 }
 function handleSettingsDragEnd(e) {
   e.currentTarget.style.opacity = '';
@@ -3783,6 +3793,7 @@ function handleSettingsDragEnd(e) {
   );
   _settingsDragType = null;
   _settingsDragId   = null;
+  document.body.classList.remove('drag-active');
 }
 function handleSettingsDragOver(e, type, id) {
   if (_settingsDragType !== type) return;
@@ -4137,14 +4148,14 @@ function renderSettings() {
         ondragend="handleSettingsDragEnd(event)"
         ondragover="handleSettingsDragOver(event,'worktype','${wt.id}')"
         ondrop="handleSettingsDrop(event,'worktype','${wt.id}')">
-        <span class="settings-drag-handle">⋮⋮</span>
+        <span class="settings-drag-handle" data-tip="ドラッグで並べ替え" aria-label="ドラッグで並べ替え" onmouseenter="_positionTip(this)">⋮⋮</span>
         <div class="color-dot" style="background:${wt.color}"></div>
         <span class="settings-item-label">${esc(wt.label)}</span>
         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--gray-500);cursor:pointer;margin-left:auto">
           <input type="checkbox" ${wt.showStatus !== false ? 'checked' : ''} onchange="toggleWtShowStatus('${wt.id}',this.checked)" style="cursor:pointer">
           ステータス表示
         </label>
-        <button class="btn btn-outline btn-sm settings-edit-btn" onclick="openEditWorkTypeModal('${wt.id}')" title="編集">
+        <button class="btn btn-outline btn-sm settings-edit-btn" onclick="openEditWorkTypeModal('${wt.id}')" data-tip="編集" aria-label="編集" onmouseenter="_positionTip(this)">
           <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10.5h2.5l5.5-5.5-2.5-2.5L2 8v2.5zm6.5-6.5 1 1"/></svg>
         </button>
         <button class="btn btn-outline btn-sm" onclick="deleteWorkType('${wt.id}')">削除</button>
@@ -4163,10 +4174,10 @@ function renderSettings() {
         ondragend="handleSettingsDragEnd(event)"
         ondragover="handleSettingsDragOver(event,'project','${p.id}')"
         ondrop="handleSettingsDrop(event,'project','${p.id}')">
-        <span class="settings-drag-handle">⋮⋮</span>
+        <span class="settings-drag-handle" data-tip="ドラッグで並べ替え" aria-label="ドラッグで並べ替え" onmouseenter="_positionTip(this)">⋮⋮</span>
         <div class="color-dot" style="background:${p.color}"></div>
         <span class="settings-item-label">${esc(p.name)}</span>
-        <button class="btn btn-outline btn-sm settings-edit-btn" onclick="openEditProjectModal('${p.id}')" title="編集">
+        <button class="btn btn-outline btn-sm settings-edit-btn" onclick="openEditProjectModal('${p.id}')" data-tip="編集" aria-label="編集" onmouseenter="_positionTip(this)">
           <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10.5h2.5l5.5-5.5-2.5-2.5L2 8v2.5zm6.5-6.5 1 1"/></svg>
         </button>
         <button class="btn btn-outline btn-sm" onclick="deleteProject('${p.id}')">削除</button>
@@ -5019,6 +5030,7 @@ function handleNoteDragStart(e, noteId) {
   _noteDragId = noteId;
   e.dataTransfer.effectAllowed = 'move';
   e.currentTarget.style.opacity = '0.4';
+  document.body.classList.add('drag-active');
 }
 function handleNoteDragEnd(e) {
   e.currentTarget.style.opacity = '';
@@ -5026,6 +5038,7 @@ function handleNoteDragEnd(e) {
     el.classList.remove('drag-insert-before','drag-insert-after');
   });
   _noteDragId = null;
+  document.body.classList.remove('drag-active');
 }
 function handleNoteDragOver(e, noteId) {
   if (!_noteDragId || _noteDragId === noteId) return;
