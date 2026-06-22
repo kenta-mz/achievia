@@ -464,7 +464,9 @@ body.drag-active [data-tip]:hover::after { opacity: 0 !important; transition-del
   border: 1px solid var(--gray-100); border-radius: 8px;
   padding: 8px 10px; cursor: pointer; transition: border-color .15s;
 }
-.note-card:hover { border-color: var(--gray-300); }
+/* hover中のカードを前面化：tip-belowのツールチップ(::after)がカード下の隙間に出るとき、
+   note-cardはposition:relativeでDOM順描画のため後続カードに隠れる。z-indexで前面に出す（r81） */
+.note-card:hover { border-color: var(--gray-300); z-index: 5; }
 .note-preview { font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
 .note-meta { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--gray-500); flex-wrap: wrap; }
 .note-expanded textarea {
@@ -1912,7 +1914,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-22-r80'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-22-r81'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -3578,8 +3580,8 @@ function renderReviewProjects() {
         <div class="review-proj-bar-wrap"><div class="review-proj-bar-fill" style="width:${pct}%"></div></div>
         ${notePreview ? `<div class="review-proj-note">📝 ${esc(notePreview)}</div>` : ''}
         <div class="review-proj-actions">
-          <button class="btn btn-outline btn-sm" onclick="openEditProjectModal('${p.id}')">✎</button>
-          <button class="btn btn-outline btn-sm" onclick="deleteProject('${p.id}');renderReviewProjects()" style="color:var(--red-500,#ef4444)">×</button>
+          <button class="btn btn-outline btn-sm" onclick="openEditProjectModal('${p.id}')" data-tip="編集" aria-label="編集" onmouseenter="_positionTip(this)">✎</button>
+          <button class="btn btn-outline btn-sm" onclick="deleteProject('${p.id}');renderReviewProjects()" style="color:var(--red-500,#ef4444)" data-tip="削除" aria-label="削除" onmouseenter="_positionTip(this)">×</button>
         </div>
       </div>`;
   }).join('');
@@ -3624,8 +3626,8 @@ function renderReviewRecurring() {
         <span class="review-rec-title">${esc(tmpl.title)}</span>
         ${proj ? `<span style="font-size:10px;padding:1px 6px;border-radius:100px;background:${proj.color}20;color:${proj.color};font-weight:600">${esc(proj.name)}</span>` : ''}
         <span class="review-rec-meta">${startDate ? `開始 ${startDate} · ` : ''}完了 ${doneCount}回</span>
-        <button class="btn btn-outline btn-sm" onclick="openRecurringTemplateEdit('${tmpl.id}')" style="flex-shrink:0">✎</button>
-        <button class="btn btn-outline btn-sm" onclick="deleteRecurringTemplate('${tmpl.id}')" style="color:var(--red-500,#ef4444);flex-shrink:0">×</button>
+        <button class="btn btn-outline btn-sm" onclick="openRecurringTemplateEdit('${tmpl.id}')" style="flex-shrink:0" data-tip="編集" aria-label="編集" onmouseenter="_positionTip(this)">✎</button>
+        <button class="btn btn-outline btn-sm" onclick="deleteRecurringTemplate('${tmpl.id}')" style="color:var(--red-500,#ef4444);flex-shrink:0" data-tip="削除" aria-label="削除" onmouseenter="_positionTip(this)">×</button>
       </div>`;
   }).join('');
 
