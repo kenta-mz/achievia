@@ -1925,7 +1925,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-23-r88'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-23-r89'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2211,6 +2211,9 @@ function deleteTaskWithRecurringCheck(taskId) {
             <input type="radio" name="rdel" value="future"> この回以降の未完了すべて
           </label>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border)">
+            <input type="radio" name="rdel" value="future-all"> この回以降のすべて（完了済みも削除）
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border)">
             <input type="radio" name="rdel" value="all"> すべて（過去含む・完了済みも）
           </label>
         </div>
@@ -2273,6 +2276,27 @@ function confirmRecurringDelete(taskId) {
       cutoffDate.setDate(cutoffDate.getDate() - 1);
       const newEndDate = `${cutoffDate.getFullYear()}-${pad(cutoffDate.getMonth()+1)}-${pad(cutoffDate.getDate())}`;
       // 既存 endDate がより早い（小さい）場合はそれを優先する（上書きで終了日を後ろにずらさない）
+      if (!tmpl.recurring.endDate || newEndDate < tmpl.recurring.endDate) {
+        tmpl.recurring.endDate = newEndDate;
+      }
+    }
+  } else if (mode === 'future-all') {
+    // future と同じく「この回以降」の基準は選択回の不変の発生日（recurringDate）。
+    // future との唯一の差：完了済みタスクも削除対象に含める（status === 'completed' の保護を外す）。
+    const cutoff = task.recurringDate ?? task.scheduledDate ?? today;
+    // per-date deletedDates記録はしない（future同様。endDate打ち切りのみで再生成停止を担保。
+    // 記録するとendDate延長/クリア時にcutoff直後だけ歯抜けが残る＝r88 P2教訓）。
+    d.tasks = d.tasks.filter(t => {
+      if (t.recurringId !== tmplId) return true;
+      const td = t.recurringDate ?? t.scheduledDate;
+      if (td && td < cutoff) return true;
+      return false;
+    });
+    // endDate 打ち切りは future と完全に同一ロジック（cutoffの前日・min優先）。
+    if (tmpl && tmpl.recurring) {
+      const cutoffDate = new Date(cutoff + 'T00:00:00');
+      cutoffDate.setDate(cutoffDate.getDate() - 1);
+      const newEndDate = `${cutoffDate.getFullYear()}-${pad(cutoffDate.getMonth()+1)}-${pad(cutoffDate.getDate())}`;
       if (!tmpl.recurring.endDate || newEndDate < tmpl.recurring.endDate) {
         tmpl.recurring.endDate = newEndDate;
       }
