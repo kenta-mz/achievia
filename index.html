@@ -1925,7 +1925,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-23-r89'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-23-r90'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2205,16 +2205,16 @@ function deleteTaskWithRecurringCheck(taskId) {
         <div class="modal-body" style="display:flex;flex-direction:column;gap:8px">
           <div style="font-weight:600;font-size:14px;margin-bottom:4px">${esc(task.title)}</div>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border)">
-            <input type="radio" name="rdel" value="single" checked> この回のみ削除
+            <input type="radio" name="rdel" value="single" checked> この回のみ
           </label>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border)">
             <input type="radio" name="rdel" value="future"> この回以降の未完了すべて
           </label>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border)">
-            <input type="radio" name="rdel" value="future-all"> この回以降のすべて（完了済みも削除）
+            <input type="radio" name="rdel" value="future-all"> この回以降のすべて
           </label>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border)">
-            <input type="radio" name="rdel" value="all"> すべて（過去含む・完了済みも）
+            <input type="radio" name="rdel" value="all"> すべて
           </label>
         </div>
         <div class="modal-footer">
