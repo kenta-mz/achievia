@@ -1925,7 +1925,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-22-r83'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-23-r88'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -2227,6 +2227,12 @@ function closeRecurringDeleteModal() {
   document.getElementById('recurring-delete-modal').style.display = 'none';
 }
 
+function _recordDeletedDate(tmpl, dateStr) {
+  if (!tmpl || !dateStr) return;
+  if (!Array.isArray(tmpl.deletedDates)) tmpl.deletedDates = [];
+  if (!tmpl.deletedDates.includes(dateStr)) tmpl.deletedDates.push(dateStr);
+}
+
 function confirmRecurringDelete(taskId) {
   const mode = document.querySelector('input[name="rdel"]:checked')?.value || 'single';
   const d = D();
@@ -2234,16 +2240,43 @@ function confirmRecurringDelete(taskId) {
   if (!task) { closeRecurringDeleteModal(); return; }
   const tmplId = task.recurringId;
   const today = todayStr();
+  const tmpl = (d.recurringTemplates||[]).find(t => t.id === tmplId);
 
   if (mode === 'single') {
+    // 記録は不変の発生日（recurringDate）基準。task.scheduledDateはユーザーがリスケで
+    // 変更しうるため、これを記録すると削除後に元の発生日が復活してしまう（r88で修正）。
+    _recordDeletedDate(tmpl, task.recurringDate ?? task.scheduledDate);
     d.tasks = d.tasks.filter(t => t.id !== taskId);
   } else if (mode === 'future') {
+    // 「この回以降」の基準は選択した回の不変の発生日（recurringDate）。
+    // task.scheduledDate はリスケで変わりうるため、リスケ済みの回を基準に選ぶと
+    // カットオフがズレる。task.recurringDate が無い（someday等・旧データ）場合のみ
+    // scheduledDate→todayの順にフォールバックする。
+    const cutoff = task.recurringDate ?? task.scheduledDate ?? today;
+    // per-date deletedDates記録はしない（endDate打ち切りのみで再生成停止が担保されるため冗長。
+    // 記録すると、後でテンプレのendDateを延長/クリアした際にcutoff直後だけ歯抜けが残る予期しない
+    // ギャップを生む。single はテンプレのendDateを触らないため _recordDeletedDate が必須だが、
+    // future はテンプレ自体を打ち切るので不要）。
     d.tasks = d.tasks.filter(t => {
       if (t.recurringId !== tmplId) return true;
       if (t.status === 'completed') return true;
-      if (t.scheduledDate && t.scheduledDate < today) return true;
+      const td = t.recurringDate ?? t.scheduledDate;
+      if (td && td < cutoff) return true;
       return false;
     });
+    // 「この回（選択回 cutoff）以降すべて削除」の宣言を恒久化するため、テンプレ自体を
+    // cutoffの前日で打ち切る。これにより window 拡張後の refreshRecurringInstances()
+    // でも cutoff 以降は再生成されない（_shouldOccur は ds > endDate で false を返すため、
+    // endDate=cutoffの前日 を入れると cutoff は ds > endDate = true → 発生しない）。
+    if (tmpl && tmpl.recurring) {
+      const cutoffDate = new Date(cutoff + 'T00:00:00');
+      cutoffDate.setDate(cutoffDate.getDate() - 1);
+      const newEndDate = `${cutoffDate.getFullYear()}-${pad(cutoffDate.getMonth()+1)}-${pad(cutoffDate.getDate())}`;
+      // 既存 endDate がより早い（小さい）場合はそれを優先する（上書きで終了日を後ろにずらさない）
+      if (!tmpl.recurring.endDate || newEndDate < tmpl.recurring.endDate) {
+        tmpl.recurring.endDate = newEndDate;
+      }
+    }
   } else { // all
     d.tasks = d.tasks.filter(t => t.recurringId !== tmplId);
     d.recurringTemplates = (d.recurringTemplates||[]).filter(t => t.id !== tmplId);
@@ -5585,25 +5618,36 @@ function refreshRecurringInstances() {
     (t.scheduledDate && t.scheduledDate >= todayS)
   );
 
+  // 後方互換バックフィル：recurringId付きだがrecurringDate未定義の既存インスタンスに
+  // recurringDate = scheduledDate を補完する（リスケ前の回はこれで正しい復元になる。
+  // 既にリスケ済みの過去回は元日付を復元できないが許容 — r88設計どおり）。
+  d.tasks.forEach(t => {
+    if (t.recurringId && t.recurringDate === undefined) t.recurringDate = t.scheduledDate;
+  });
+
+  // existingSetのキーは「不変の発生日（recurringDate）」基準。scheduledDateはユーザーが
+  // リスケで変更しうるため、これをキーにすると元の発生日が重複生成されてしまう（r88で修正）。
   const existingSet = new Set(
-    d.tasks.filter(t => t.recurringId).map(t => `${t.recurringId}_${t.scheduledDate}`)
+    d.tasks.filter(t => t.recurringId).map(t => `${t.recurringId}_${t.recurringDate ?? t.scheduledDate}`)
   );
 
   const todayDate = new Date();
   for (const tmpl of d.recurringTemplates) {
     if (!tmpl.recurring) continue;
+    const deletedSet = new Set(tmpl.deletedDates || []);
     for (let i = 0; i <= recurringWindow; i++) {
       const dt = new Date(todayDate);
       dt.setDate(todayDate.getDate() + i);
       const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
       const key = `${tmpl.id}_${dateStr}`;
-      if (!_shouldOccur(tmpl.recurring, dt) || existingSet.has(key)) continue;
+      if (!_shouldOccur(tmpl.recurring, dt) || existingSet.has(key) || deletedSet.has(dateStr)) continue;
       existingSet.add(key);
       d.tasks.push({
         id: genId(), type: 'task', title: tmpl.title, notes: tmpl.notes || '',
         projectId: tmpl.projectId || null, workType: tmpl.workType || null,
         estimatedHours: tmpl.estimatedHours, actualHours: null,
         partialHours: [], status: 'pending', tagIds: [], scheduledDate: dateStr,
+        recurringDate: dateStr, // 不変の発生日（リスケで変えない）r88
         priority: tmpl.priority || 'medium', recurringId: tmpl.id,
         order: d.tasks.length, completedAt: null, createdAt: new Date().toISOString()
       });
