@@ -1062,6 +1062,7 @@ body.touch-dragging .tasks-left {
 <div id="review-modal" style="display:none"></div>
 <div id="completion-modal" style="display:none"></div>
 <div id="recurring-delete-modal" style="display:none"></div>
+<div id="recurring-edit-modal" style="display:none"></div>
 
 <!-- GCal Import Modal -->
 <div id="gcal-import-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
@@ -1925,7 +1926,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-23-r90'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-24-r91'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5694,6 +5695,7 @@ let _emSourceView = 'list'; // 'list' | 'timeline'
 let _editModalSlotIdx = -1; // タイムラインのスロットインデックス（-1 = 非スロット編集）
 let _emEstTouched = false; // 予定時間系コントロールをユーザーが操作したか（新規作成パスの「未操作→予測」判定用）
 let _partialEstTouched = false; // 経過時間記録モーダルの「予定」セレクトをユーザーが操作したか（未操作なら未設定(null)を保持する判定用）
+let _pendingRecurringEdit = null; // 繰り返し編集4択の確定待ち退避状態（{taskId, newVals, recurChanged}）
 
 function openEditModal(id, sourceView = 'list', slotIdx = -1) {
   _editModalId = id;
@@ -6167,64 +6169,245 @@ function saveEditModal() {
   const task = d.tasks.find(t => t.id === _editModalId);
   if (!task) return;
 
-  const title = document.getElementById('em-title')?.value.trim();
-  if (title) task.title = title;
-  const someday = document.getElementById('em-someday')?.checked;
-  task.scheduledDate = someday ? null : (document.getElementById('em-date')?.value || todayStr());
-  task.projectId     = document.getElementById('em-project')?.value   || null;
-  task.workType      = document.getElementById('em-worktype')?.value  || null;
-  const _emMode2 = document.getElementById('em-hours-total')?.style.display === 'none' ? 'daily' : 'total';
+  // フォーム読み取り（既存と同じ DOM 参照）。task へ直接代入せず newVals に一旦集約する。
+  // 4択で single 以外を選んだ場合に「変更前」「変更後」を区別する必要があるため。
+  const _titleRaw = document.getElementById('em-title')?.value.trim();
+  const someday   = document.getElementById('em-someday')?.checked;
+  const _emMode2  = document.getElementById('em-hours-total')?.style.display === 'none' ? 'daily' : 'total';
   const _emByDate2 = _emMode2 === 'daily' ? _getEmHoursByDate() : [];
   const _tm2 = _emTotalTime(_emMode2, _emByDate2, task.estimatedHours, task.estimatedHours == null);
-  task.estimatedHoursMode   = _emMode2;
-  task.estimatedHoursByDate = _emByDate2;
-  task.estimatedHours = _tm2.hours;
-  task.notes         = document.getElementById('em-notes')?.value     || '';
-  task.startTime = _tm2.startTime;
-  task.endTime   = _tm2.endTime;
-  // スロット編集の場合は estimatedHoursByDate[idx] にも反映（合計モードのみ）。
-  // 日別モードでは _getEmHoursByDate() が各行の時刻を既に反映済みのため上書きしない
-  // （日別の task.startTime/endTime は null のため、上書きするとスロット時刻が消える）
-  if (_editModalSlotIdx >= 0 && _emMode2 !== 'daily' && Array.isArray(task.estimatedHoursByDate)) {
-    const _slot = task.estimatedHoursByDate[_editModalSlotIdx];
+  const _newStatus = document.getElementById('em-status')?.value;
+
+  const newVals = {
+    // title 空入力は無視（既存の「空なら変更しない」ガードを維持）
+    title:          _titleRaw || task.title,
+    scheduledDate:  someday ? null : (document.getElementById('em-date')?.value || todayStr()),
+    projectId:      document.getElementById('em-project')?.value  || null,
+    workType:       document.getElementById('em-worktype')?.value || null,
+    estimatedHoursMode:   _emMode2,
+    estimatedHoursByDate: _emByDate2,
+    estimatedHours:       _tm2.hours,
+    notes:          document.getElementById('em-notes')?.value || '',
+    startTime:      _tm2.startTime,
+    endTime:        _tm2.endTime,
+    // status は完了済み保護（既存挙動）。完了タスクの status は変えない
+    status: (_newStatus && task.status !== 'completed') ? _newStatus : task.status,
+  };
+
+  // スロット編集（タイムラインの合計モード）の estimatedHoursByDate[idx] 反映を
+  // newVals.estimatedHoursByDate に対して行う（既存と同じ判定・代入）。
+  // これは instance 固有値であり single 適用時にのみ task へ書き込まれる。
+  if (_editModalSlotIdx >= 0 && _emMode2 !== 'daily' && Array.isArray(newVals.estimatedHoursByDate)) {
+    const _slot = newVals.estimatedHoursByDate[_editModalSlotIdx];
     if (_slot) {
-      _slot.startTime = task.startTime;
-      _slot.endTime   = task.endTime;
+      _slot.startTime = newVals.startTime;
+      _slot.endTime   = newVals.endTime;
     }
   }
-  const newStatus = document.getElementById('em-status')?.value;
-  if (newStatus && task.status !== 'completed') task.status = newStatus;
 
   const recurringOn = document.getElementById('em-recurring-toggle')?.checked;
   if (!d.recurringTemplates) d.recurringTemplates = [];
 
-  if (recurringOn) {
-    const freq    = document.getElementById('em-freq')?.value || 'weekly';
-    const days    = ['日','月','火','水','木','金','土']
-      .map((_, i) => document.getElementById(`em-day-${i}`)?.classList.contains('active') ? i : -1)
-      .filter(i => i >= 0);
-    const startDate = document.getElementById('em-startdate')?.value || null;
-    const endDate = document.getElementById('em-enddate')?.value || null;
-
-    if (task.recurringId) {
-      const tmpl = d.recurringTemplates.find(t => t.id === task.recurringId);
-      if (tmpl) { tmpl.recurring = { frequency: freq, days, startDate, endDate }; tmpl.title = task.title; }
-    } else {
-      const tmplId = genId();
-      d.recurringTemplates.push({
-        id: tmplId, title: task.title, notes: task.notes,
-        projectId: task.projectId, workType: task.workType,
-        estimatedHours: task.estimatedHours, priority: task.priority,
-        recurring: { frequency: freq, days, startDate, endDate }
-      });
-      task.recurringId = tmplId;
-    }
-    refreshRecurringInstances();
-  } else if (task.recurringId) {
-    task.recurringId = null; // Remove from recurring without deleting template
+  // ── ケース1: トグルOFF（繰り返し解除）→ 4択を出さず即解除保存 ──
+  if (!recurringOn) {
+    _applyAllFields(task, newVals);
+    if (task.recurringId) task.recurringId = null; // Remove from recurring without deleting template
+    commit(); closeEditModal();
+    return;
   }
 
+  // ── recurringOn === true 以降 ──
+  const freq = document.getElementById('em-freq')?.value || 'weekly';
+  const days = ['日','月','火','水','木','金','土']
+    .map((_, i) => document.getElementById(`em-day-${i}`)?.classList.contains('active') ? i : -1)
+    .filter(i => i >= 0);
+  const startDate = document.getElementById('em-startdate')?.value || null;
+  const endDate   = document.getElementById('em-enddate')?.value || null;
+
+  // ── ケース2: 新規テンプレ化（初回の繰り返し化）→ 4択なし即保存 ──
+  if (!task.recurringId) {
+    _applyAllFields(task, newVals);
+    const tmplId = genId();
+    d.recurringTemplates.push({
+      id: tmplId, title: task.title, notes: task.notes,
+      projectId: task.projectId, workType: task.workType,
+      estimatedHours: task.estimatedHours, priority: task.priority,
+      recurring: { frequency: freq, days, startDate, endDate }
+    });
+    task.recurringId = tmplId;
+    refreshRecurringInstances(); // 既存挙動維持（新規スケジュール生成）
+    commit(); closeEditModal();
+    return;
+  }
+
+  // ── 既存テンプレあり：recurring 構造（freq/days/startDate/endDate）の変更を検出 ──
+  // 注：tmpl.recurring はここでは書き換えない。4択モーダルでキャンセル/この回のみを
+  //     選んだ場合に構造変更がメモリへ漏れて次の save で永続化するのを防ぐため、
+  //     構造の適用は確定時（伝播変更なしの即保存 or confirmRecurringUpdate）まで遅延する。
+  const tmpl = d.recurringTemplates.find(t => t.id === task.recurringId);
+  const _recurChanged = _emRecurringStructChanged(tmpl, freq, days, startDate, endDate);
+  const _newRecurring = { frequency: freq, days, startDate, endDate };
+
+  // ── ケース3: 伝播対象フィールドの変更有無を判定 ──
+  if (_emHasPropagatedChange(task, newVals)) {
+    // 伝播対象に変更あり → 4択モーダルを出す。task もテンプレ構造もまだ書き換えない。
+    _pendingRecurringEdit = { taskId: task.id, newVals, recurChanged: _recurChanged, newRecurring: _newRecurring };
+    openRecurringUpdateModal(task.id);
+    return; // commit/closeEditModal はここでは呼ばない
+  }
+
+  // 伝播変更なし（scheduledDate/status/時刻/構造のみ変更）→ この回のみ即保存
+  _applyAllFields(task, newVals);
+  if (_recurChanged && tmpl) tmpl.recurring = _newRecurring; // 構造変更を確定時に適用
+  if (_recurChanged) refreshRecurringInstances(); // 構造変更時のみ既存挙動で再構築
   commit(); closeEditModal();
+}
+
+// ============================================================
+// RECURRING TASK EDIT — 4択モーダル（削除モーダルに対称）
+// ============================================================
+
+// 伝播対象フィールド（テンプレ編集自動反映と同じ5列。notesのみ新4択固有で追加）
+const PROPAGATED = ['title','projectId','workType','estimatedHours','notes'];
+function _emHasPropagatedChange(task, nv) {
+  // estimatedHours は parseFloat 同士の比較。null/数値は ?? null で正規化
+  return PROPAGATED.some(k => (task[k] ?? null) !== (nv[k] ?? null));
+}
+
+// recurring 構造（freq/days/startDate/endDate）が変わったか判定
+function _emRecurringStructChanged(tmpl, freq, days, startDate, endDate) {
+  const r = tmpl?.recurring;
+  if (!r) return true;
+  const sameDays = Array.isArray(r.days) && r.days.length === days.length &&
+    [...r.days].sort().join(',') === [...days].sort().join(',');
+  return r.frequency !== freq || !sameDays || (r.startDate ?? null) !== (startDate ?? null) || (r.endDate ?? null) !== (endDate ?? null);
+}
+
+// 伝播列のみ上書き（完了済み保護＝actual/partial/completedAt/status を触らないことで構造的に保証）
+function _applyPropagatedFields(t, nv) {
+  t.title          = nv.title;
+  t.notes          = nv.notes;
+  t.projectId      = nv.projectId;
+  t.workType       = nv.workType;
+  t.estimatedHours = nv.estimatedHours;
+}
+
+// この回のみ（single）＝全項目代入。インスタンス固有値も含む（スロット編集の estimatedHoursByDate 込み）
+function _applyAllFields(t, nv) {
+  t.title                = nv.title;
+  t.scheduledDate        = nv.scheduledDate;
+  t.projectId            = nv.projectId;
+  t.workType             = nv.workType;
+  t.estimatedHoursMode   = nv.estimatedHoursMode;
+  t.estimatedHoursByDate = nv.estimatedHoursByDate; // スロット編集の slot.startTime/endTime 反映済み
+  t.estimatedHours       = nv.estimatedHours;
+  t.notes                = nv.notes;
+  t.startTime            = nv.startTime;
+  t.endTime              = nv.endTime;
+  t.status               = nv.status; // newVals 集約時に完了保護済み
+}
+
+function openRecurringUpdateModal(taskId) {
+  const task = D().tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const modal = document.getElementById('recurring-edit-modal');
+  modal.innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeRecurringUpdateModal()">
+      <div class="modal" style="max-width:360px">
+        <div class="modal-header">
+          <span class="modal-title">繰り返しの更新</span>
+          <button class="btn btn-icon btn-outline" onclick="closeRecurringUpdateModal()">✕</button>
+        </div>
+        <div class="modal-body" style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-weight:600;font-size:14px;margin-bottom:4px">${esc(task.title)}</div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border)">
+            <input type="radio" name="redit" value="single" checked> この回のみ
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border)">
+            <input type="radio" name="redit" value="future"> この回以降の未完了すべて
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border)">
+            <input type="radio" name="redit" value="future-all"> この回以降のすべて
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px;border-radius:8px;border:1px solid var(--border)">
+            <input type="radio" name="redit" value="all"> すべて
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" onclick="closeRecurringUpdateModal()">キャンセル</button>
+          <button class="btn btn-primary" onclick="confirmRecurringUpdate('${taskId}')">更新</button>
+        </div>
+      </div>
+    </div>`;
+  modal.style.display = '';
+}
+
+function closeRecurringUpdateModal() {
+  document.getElementById('recurring-edit-modal').style.display = 'none';
+  _pendingRecurringEdit = null;   // 退避状態クリア
+  closeEditModal();               // 編集モーダルもリセット（_editModalId/_editModalSlotIdx 等を null 化）
+}
+
+function confirmRecurringUpdate(taskId) {
+  const mode = document.querySelector('input[name="redit"]:checked')?.value || 'single';
+  const d = D();
+  const task = d.tasks.find(t => t.id === taskId);
+  if (!task || !_pendingRecurringEdit) { closeRecurringUpdateModal(); return; }
+  const nv = _pendingRecurringEdit.newVals;
+  const _recurChanged = _pendingRecurringEdit.recurChanged;
+  const _newRecurring = _pendingRecurringEdit.newRecurring;
+  const tmplId = task.recurringId;
+  const today = todayStr();
+  const tmpl = (d.recurringTemplates || []).find(t => t.id === tmplId);
+  // cutoff は削除 future と完全同一（recurringDate 基準・過去日付も許容・補正しない）
+  const cutoff = task.recurringDate ?? task.scheduledDate ?? today;
+
+  if (mode === 'single') {
+    // この回のみ：全項目をこのインスタンスに代入（スロット時刻込み）。テンプレは触らない
+    _applyAllFields(task, nv);
+  } else if (mode === 'future') {
+    // この回以降の未完了すべて：完了済みは保護（伝播列のみ上書き）
+    d.tasks.forEach(t => {
+      if (t.recurringId !== tmplId) return;
+      if (t.status === 'completed') return;          // 完了済み保護（削除 future と対称）
+      const td = t.recurringDate ?? t.scheduledDate;
+      if (!(td && td >= cutoff)) return;
+      _applyPropagatedFields(t, nv);
+    });
+    if (tmpl) _applyPropagatedFields(tmpl, nv);       // 未来生成分のためテンプレも更新
+  } else if (mode === 'future-all') {
+    // この回以降のすべて：完了済みも伝播列を上書き（actual/partial/completedAt/status は保護）
+    d.tasks.forEach(t => {
+      if (t.recurringId !== tmplId) return;
+      const td = t.recurringDate ?? t.scheduledDate;
+      if (!(td && td >= cutoff)) return;
+      _applyPropagatedFields(t, nv);
+    });
+    if (tmpl) _applyPropagatedFields(tmpl, nv);
+  } else { // all
+    if (tmpl) _applyPropagatedFields(tmpl, nv);
+    d.tasks.forEach(t => {
+      if (t.recurringId !== tmplId) return;
+      _applyPropagatedFields(t, nv);                 // 全回。actual/partial/status は保護
+    });
+  }
+
+  // 非single：選択回自身の occurrence 固有編集（リスケ/状態/時刻/スロット）も保存する。
+  // 一括伝播は他インスタンスへ伝播列のみだが、ユーザーが今開いて編集した「この回」の
+  // 個別変更を取りこぼさない（pre-r91 のインスタンス編集挙動と同等）。single は上の
+  // 分岐で既に _applyAllFields 済みなので二重適用しない。
+  if (mode !== 'single') _applyAllFields(task, nv);
+
+  // recurring 構造（freq/days/startDate/endDate）の変更はシリーズ単位の概念。
+  // 「この回のみ（single）」ではシリーズを変えないため構造変更は適用しない（この回だけ
+  // という選択を尊重）。非single かつ構造変更ありのときだけテンプレへ適用＋未来分を
+  // 再生成する（構造変更時の refresh は既存挙動でユーザー受容済み・伝播パスとは別）。
+  // キャンセル時は closeRecurringUpdateModal が _pendingRecurringEdit を捨てるため未適用。
+  if (mode !== 'single' && _recurChanged && tmpl) tmpl.recurring = _newRecurring;
+  if (mode !== 'single' && _recurChanged) refreshRecurringInstances();
+
+  commit();                       // 内部で render() を呼ぶ。明示 render() は不要
+  closeRecurringUpdateModal();    // _pendingRecurringEdit クリア + closeEditModal() を含む
 }
 
 // ============================================================
