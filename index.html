@@ -1926,7 +1926,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-24-r91'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-24-r92'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -6250,10 +6250,14 @@ function saveEditModal() {
 
   // ── ケース3: 伝播対象フィールドの変更有無を判定 ──
   if (_emHasPropagatedChange(task, newVals)) {
-    // 伝播対象に変更あり → 4択モーダルを出す。task もテンプレ構造もまだ書き換えない。
+    // 伝播対象に変更あり → 編集モーダルを閉じてから4択モーダルを出す。
+    // 編集モーダルを残すと4択に被って見えない（削除フロー L1133 と同じく先に閉じる）。
+    // confirmRecurringUpdate は taskId 引数と _pendingRecurringEdit で完結し _editModalId に
+    // 依存しないため、ここで closeEditModal()（状態リセット）を呼んでも安全。
     _pendingRecurringEdit = { taskId: task.id, newVals, recurChanged: _recurChanged, newRecurring: _newRecurring };
+    closeEditModal();
     openRecurringUpdateModal(task.id);
-    return; // commit/closeEditModal はここでは呼ばない
+    return; // commit はここでは呼ばない
   }
 
   // 伝播変更なし（scheduledDate/status/時刻/構造のみ変更）→ この回のみ即保存
