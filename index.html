@@ -1926,7 +1926,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-24-r92'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-28-r93'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -3714,15 +3714,13 @@ function renderReviewRecurring() {
 }
 
 function deleteRecurringTemplate(tmplId) {
-  if (!confirm('このテンプレートと今日以降のすべての未完了繰り返しを削除しますか？\n（完了済みは保持されます）')) return;
+  if (!confirm('このテンプレートとすべての未完了繰り返し（過去のやり残し含む）を削除しますか？\n（完了済みは保持されます）')) return;
   const d = D();
-  const today = todayStr();
   d.recurringTemplates = (d.recurringTemplates||[]).filter(t => t.id !== tmplId);
   d.tasks = d.tasks.filter(t => {
-    if (t.recurringId !== tmplId) return true;          // 無関係なタスクは保持
-    if (t.status === 'completed') return true;           // 完了済みは保持
-    if (t.scheduledDate && t.scheduledDate < today) return true;  // 過去の未完了は保持
-    return false;                                        // 今日以降の未完了を削除
+    if (t.recurringId !== tmplId) return true;   // 無関係なタスクは保持
+    if (t.status === 'completed') return true;    // 完了済みは保持（実績の履歴）
+    return false;                                 // テンプレ削除に伴い未完了は過去・未来とも削除
   });
   commit();
   renderReviewRecurring();
@@ -5674,6 +5672,7 @@ function refreshRecurringInstances() {
         partialHours: [], status: 'pending', tagIds: [], scheduledDate: dateStr,
         recurringDate: dateStr, // 不変の発生日（リスケで変えない）r88
         priority: tmpl.priority || 'medium', recurringId: tmpl.id,
+        startTime: tmpl.startTime ?? null, endTime: tmpl.endTime ?? null, // r93: テンプレ時刻を新規生成回にコピー
         order: d.tasks.length, completedAt: null, createdAt: new Date().toISOString()
       });
     }
@@ -6078,6 +6077,11 @@ function saveEditModal() {
     tmpl.projectId     = document.getElementById('em-project')?.value || null;
     tmpl.workType      = document.getElementById('em-worktype')?.value || null;
     tmpl.estimatedHours = parseFloat(document.getElementById('em-hours')?.value || '1');
+    // Review タブのテンプレ編集は所要時間ベースで時刻UIを持たない。テンプレに startTime/endTime が
+    // 残っていると、新規生成回が「古い時間帯＋新しい所要時間」の不整合になる（r93で時刻を保持し
+    // 生成へコピーするようにしたため）。ここで時刻スロットをクリアし duration ベースに統一する。
+    tmpl.startTime = null;
+    tmpl.endTime   = null;
     const freq      = document.getElementById('em-freq')?.value || 'weekly';
     const days      = ['日','月','火','水','木','金','土']
       .map((_, i) => document.getElementById(`em-day-${i}`)?.classList.contains('active') ? i : -1)
@@ -6095,6 +6099,8 @@ function saveEditModal() {
       t.projectId     = tmpl.projectId;
       t.workType      = tmpl.workType;
       t.estimatedHours = tmpl.estimatedHours;
+      t.startTime     = null;   // テンプレと同じく duration ベースに統一（時刻スロット解除）
+      t.endTime       = null;
     });
     commit();
     refreshRecurringInstances();
@@ -6150,6 +6156,7 @@ function saveEditModal() {
         id: tmplId, title: newTask.title, notes: newTask.notes,
         projectId: newTask.projectId, workType: newTask.workType,
         estimatedHours: newTask.estimatedHours, priority: newTask.priority,
+        startTime: newTask.startTime ?? null, endTime: newTask.endTime ?? null,
         recurring: { frequency: freq, days, startDate, endDate }
       });
       newTask.recurringId = tmplId;
@@ -6232,6 +6239,7 @@ function saveEditModal() {
       id: tmplId, title: task.title, notes: task.notes,
       projectId: task.projectId, workType: task.workType,
       estimatedHours: task.estimatedHours, priority: task.priority,
+      startTime: task.startTime ?? null, endTime: task.endTime ?? null,
       recurring: { frequency: freq, days, startDate, endDate }
     });
     task.recurringId = tmplId;
@@ -6248,8 +6256,8 @@ function saveEditModal() {
   const _recurChanged = _emRecurringStructChanged(tmpl, freq, days, startDate, endDate);
   const _newRecurring = { frequency: freq, days, startDate, endDate };
 
-  // ── ケース3: 伝播対象フィールドの変更有無を判定 ──
-  if (_emHasPropagatedChange(task, newVals)) {
+  // ── ケース3: 4択トリガー（伝播対象＋時刻）の変更有無を判定 ──
+  if (_emHasEditTrigger(task, newVals)) {
     // 伝播対象に変更あり → 編集モーダルを閉じてから4択モーダルを出す。
     // 編集モーダルを残すと4択に被って見えない（削除フロー L1133 と同じく先に閉じる）。
     // confirmRecurringUpdate は taskId 引数と _pendingRecurringEdit で完結し _editModalId に
@@ -6271,11 +6279,21 @@ function saveEditModal() {
 // RECURRING TASK EDIT — 4択モーダル（削除モーダルに対称）
 // ============================================================
 
-// 伝播対象フィールド（テンプレ編集自動反映と同じ5列。notesのみ新4択固有で追加）
-const PROPAGATED = ['title','projectId','workType','estimatedHours','notes'];
+// 伝播対象フィールド（テンプレ編集自動反映と同じ4列。notesは回ごとのため対象外＝Q2/r93）
+const PROPAGATED = ['title','projectId','workType','estimatedHours'];
 function _emHasPropagatedChange(task, nv) {
   // estimatedHours は parseFloat 同士の比較。null/数値は ?? null で正規化
   return PROPAGATED.some(k => (task[k] ?? null) !== (nv[k] ?? null));
+}
+
+// 4択を出すトリガー集合（r93）：PROPAGATED ＋ 時刻（null↔値含む）。
+// notes・日付（scheduledDate）は含めない＝単独変更では4択を出さず即 single 保存
+// （Q2：メモ／日付の「この回のみ」リスケ。曜日リマップは対象外＝再スコープで撤回）。
+function _emHasEditTrigger(task, nv) {
+  if (_emHasPropagatedChange(task, nv)) return true;                            // ① PROPAGATED
+  if ((task.startTime ?? null) !== (nv.startTime ?? null)) return true;         // ② 時刻
+  if ((task.endTime   ?? null) !== (nv.endTime   ?? null)) return true;
+  return false;
 }
 
 // recurring 構造（freq/days/startDate/endDate）が変わったか判定
@@ -6288,12 +6306,24 @@ function _emRecurringStructChanged(tmpl, freq, days, startDate, endDate) {
 }
 
 // 伝播列のみ上書き（完了済み保護＝actual/partial/completedAt/status を触らないことで構造的に保証）
+// notes は含めない＝回ごと（Q2/r93）。他回の notes はこの関数の呼び出しでは一切変更されない。
 function _applyPropagatedFields(t, nv) {
   t.title          = nv.title;
-  t.notes          = nv.notes;
   t.projectId      = nv.projectId;
   t.workType       = nv.workType;
   t.estimatedHours = nv.estimatedHours;
+}
+
+// 時刻は「両方非null」のときだけ反映する（Q3-時刻/r93）。
+// 時刻は「選択回で実際に変わったとき」だけ他回・テンプレへ反映する（null=クリアも反映）。
+// 変わっていなければ触れない＝duration/daily 編集で title だけ変えたケースで既存時刻を null で
+// 消さない（_emTotalTime は duration/daily 日別で startTime:null,endTime:null を返すため）。
+// 逆に意図的な時刻クリア（time→duration・時刻削除）は changed=true なので scope へ伝播される。
+function _applyTime(t, nv, changed) {
+  if (changed) {
+    t.startTime = nv.startTime;
+    t.endTime   = nv.endTime;
+  }
 }
 
 // この回のみ（single）＝全項目代入。インスタンス固有値も含む（スロット編集の estimatedHoursByDate 込み）
@@ -6365,6 +6395,8 @@ function confirmRecurringUpdate(taskId) {
   const tmpl = (d.recurringTemplates || []).find(t => t.id === tmplId);
   // cutoff は削除 future と完全同一（recurringDate 基準・過去日付も許容・補正しない）
   const cutoff = task.recurringDate ?? task.scheduledDate ?? today;
+  // 時刻が選択回で実際に変わったか（null↔値・値↔値）。クリアも「変化」として scope へ伝播する。
+  const timeChanged = (task.startTime ?? null) !== (nv.startTime ?? null) || (task.endTime ?? null) !== (nv.endTime ?? null);
 
   if (mode === 'single') {
     // この回のみ：全項目をこのインスタンスに代入（スロット時刻込み）。テンプレは触らない
@@ -6377,8 +6409,9 @@ function confirmRecurringUpdate(taskId) {
       const td = t.recurringDate ?? t.scheduledDate;
       if (!(td && td >= cutoff)) return;
       _applyPropagatedFields(t, nv);
+      _applyTime(t, nv, timeChanged);
     });
-    if (tmpl) _applyPropagatedFields(tmpl, nv);       // 未来生成分のためテンプレも更新
+    if (tmpl) { _applyPropagatedFields(tmpl, nv); _applyTime(tmpl, nv, timeChanged); } // 未来生成分のためテンプレも更新
   } else if (mode === 'future-all') {
     // この回以降のすべて：完了済みも伝播列を上書き（actual/partial/completedAt/status は保護）
     d.tasks.forEach(t => {
@@ -6386,13 +6419,15 @@ function confirmRecurringUpdate(taskId) {
       const td = t.recurringDate ?? t.scheduledDate;
       if (!(td && td >= cutoff)) return;
       _applyPropagatedFields(t, nv);
+      _applyTime(t, nv, timeChanged);
     });
-    if (tmpl) _applyPropagatedFields(tmpl, nv);
+    if (tmpl) { _applyPropagatedFields(tmpl, nv); _applyTime(tmpl, nv, timeChanged); }
   } else { // all
-    if (tmpl) _applyPropagatedFields(tmpl, nv);
+    if (tmpl) { _applyPropagatedFields(tmpl, nv); _applyTime(tmpl, nv, timeChanged); }
     d.tasks.forEach(t => {
       if (t.recurringId !== tmplId) return;
       _applyPropagatedFields(t, nv);                 // 全回。actual/partial/status は保護
+      _applyTime(t, nv, timeChanged);
     });
   }
 
