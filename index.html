@@ -1926,7 +1926,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-28-r93'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-28-r94'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5632,13 +5632,14 @@ function refreshRecurringInstances() {
   if (!d.recurringTemplates) d.recurringTemplates = [];
   if (!d.recurringTemplates.length) return;
 
-  const todayS = todayStr();
-
-  // Remove old pending instances (keep completed ones)
+  // 過去かつ未完了の繰り返しインスタンスは「やり残し」として保持する（r94）。
+  // ただしテンプレ自体が削除済みの孤児インスタンス（recurringId はあるがテンプレ不在）は
+  // 再生成元が無く UI 上も識別不能なため清理する。完了済み・実績付きは常に保持。
+  const _tmplIds = new Set((d.recurringTemplates || []).map(t => t.id));
   d.tasks = d.tasks.filter(t =>
-    !t.recurringId ||
-    t.status === 'completed' ||
-    (t.scheduledDate && t.scheduledDate >= todayS)
+    !t.recurringId ||                       // 非繰り返しタスク → 保持
+    t.status === 'completed' ||             // 完了済み（実績含む）→ 常に保持
+    _tmplIds.has(t.recurringId)             // テンプレ存在 → 保持（過去未完了の「やり残し」含む）
   );
 
   // 後方互換バックフィル：recurringId付きだがrecurringDate未定義の既存インスタンスに
