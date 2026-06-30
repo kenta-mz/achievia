@@ -1926,7 +1926,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-30-r95'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-30-r96'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5674,10 +5674,100 @@ function _hasInstanceData(t, tmpl) {
   return false;
 }
 
+// frequency の「期間種別」を返す（r96・design.md §R3-5）。
+// weekly/biweekly→'weekly'、monthly→'monthly'、daily/weekdays→'other'。
+// 期間アンカー写像が定義できる頻度かどうかの判定に使う。
+function _periodKind(freq) {
+  if (freq === 'weekly' || freq === 'biweekly') return 'weekly';
+  if (freq === 'monthly') return 'monthly';
+  return 'other';
+}
+
+// weekly/biweekly の期間アンカー写像（r96・design.md §R3-2）。
+// curDateStr が所属する ISO週（月曜起算）の内側で、newDays（0=日…6=土）のうち
+// 現在の曜日(isoIdx)に最も近いものへ写像する。前方探索ではないため週をまたいでドリフトしない。
+// 等距離（前後で同じ距離）のときは isoIdx が大きい方＝週内で後ろを優先する（規則確定）。
+function _anchorWeekly(curDateStr, newDays) {
+  if (!Array.isArray(newDays) || newDays.length === 0) return null;
+  const cur = new Date(curDateStr + 'T00:00:00');
+  const isoIdx = dt => (dt.getDay() + 6) % 7; // 月=0…日=6
+  const curIso = isoIdx(cur);
+  const monday = new Date(cur);
+  monday.setDate(monday.getDate() - curIso);
+  const newIsoList = newDays.map(dow => (dow + 6) % 7);
+  let best = null, bestDist = Infinity;
+  for (const ni of newIsoList) {
+    const dist = Math.abs(ni - curIso);
+    if (dist < bestDist || (dist === bestDist && ni > best)) {
+      best = ni;
+      bestDist = dist;
+    }
+  }
+  if (best === null) return null;
+  const target = new Date(monday);
+  target.setDate(target.getDate() + best);
+  return `${target.getFullYear()}-${pad(target.getMonth()+1)}-${pad(target.getDate())}`;
+}
+
+// monthly の期間アンカー写像（r96・design.md §R3-3）。
+// curDateStr と同じ暦月の newStartDay 日へ写像する。当月にその日が存在しない（31日問題等）場合は
+// 救済先なし（null）を返す＝呼び出し側は削除せず据え置き（§10 論点B・A+D方針＝末日丸めしない）。
+function _anchorMonthly(curDateStr, newStartDay) {
+  const cur = new Date(curDateStr + 'T00:00:00');
+  const y = cur.getFullYear(), m = cur.getMonth();
+  const target = new Date(y, m, newStartDay);
+  if (target.getMonth() !== m) return null; // 当月にその日が存在しない
+  return `${target.getFullYear()}-${pad(target.getMonth()+1)}-${pad(target.getDate())}`;
+}
+
+// cutoff が所属する期間の先頭日を返す（r96・design.md §R3-7）。
+// weekly/biweekly→ISO週の月曜、monthly→月初（1日）。テンプレ startDate 緩和に使う。
+function _periodStart(dateStr, kind) {
+  const dt = new Date(dateStr + 'T00:00:00');
+  if (kind === 'weekly') {
+    const isoIdx = (dt.getDay() + 6) % 7;
+    dt.setDate(dt.getDate() - isoIdx);
+    return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+  }
+  if (kind === 'monthly') {
+    return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-01`;
+  }
+  return dateStr; // other（daily/weekdays）は緩和不要・そのまま返す
+}
+
+// 頻度変更（期間種別が変わる）時のフォールバック前方探索（r96・design.md §R3-4）。
+// occupiedSet（existingOccupied ∪ usedDates の和集合・呼び出し側で構築）・deletedSet（single削除済み日）を
+// 避けて next の発生日を1件返す。見つからない場合は null（救済先なし→§10 論点B 保留）。
+//
+// r96修正10・Codex[P2]（占有日スキップ未対応の修正）：旧実装は occupied/deleted な候補に当たると
+// その keeper を据え置くだけで、次の keeper の探索開始点（fromCursor）を進めていなかったため、
+// 2件目以降の keeper も同じ占有日を繰り返し要求し続け、結果として後続 keeper が軒並み未マップ
+// （据え置き）のまま残ってしまっていた。本関数は「占有日・削除済み日を飛ばして前進し続け、
+// 最初に見つかった空き有効日を返す」ようにし、呼び出し側が次回の fromCursor を
+// 「今回返した日の翌日」に進めることで、複数 keeper を順次・重複なく前方へ割り当てられるようにする。
+function _nextForward(newRec, fromCursor, occupiedSet, deletedSet) {
+  const dt = new Date(fromCursor + 'T00:00:00');
+  let guard = 0;
+  while (guard < 4000) {
+    if (_shouldOccur(newRec, dt)) {
+      const ds = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+      if (!deletedSet.has(ds) && !occupiedSet.has(ds)) return ds; // 占有日・削除済み日はスキップして前進継続
+    }
+    dt.setDate(dt.getDate() + 1);
+    guard++;
+  }
+  return null;
+}
+
 // 曜日/日リマップ（救済限定）。生成は refreshRecurringInstances 一本に保つため、
 // 固有データを持つ victim（_hasInstanceData）だけを新発生日へ再日付し、素の pending は
 // 削除して refresh が新パターンで窓内に生成し直すのに任せる（design.md §2-3）。
 // includeCompleted=false（future）は完了済みを victim から除外、true（future-all/all）は含める。
+//
+// r96・design.md §R3-5：keeper の再日付は「期間アンカー写像」が主経路（週/月をずらさない＝不変条件⑤）。
+// 旧頻度と新頻度の期間種別（_periodKind）が同一なら期間アンカー（weekly→_anchorWeekly／monthly→_anchorMonthly）、
+// 異なる（頻度自体の変更）場合のみ §R3-4 の前方探索フォールバック（_nextForward）を使う。
+// 件数律速の一括列挙（旧 r95 実装）は廃止し、各 keeper を個別に写像する。
 function _remapOccurrences(d, tmpl, cutoff, newRec, includeCompleted) {
   const tmplId = tmpl.id;
   const victims = d.tasks.filter(t => {
@@ -5708,18 +5798,81 @@ function _remapOccurrences(d, tmpl, cutoff, newRec, includeCompleted) {
       const bd = b.recurringDate ?? b.scheduledDate ?? '';
       return ad < bd ? -1 : ad > bd ? 1 : 0;
     });
-    // single削除済みの日（tmpl.deletedDates）は復活させない＝除外してから割り当てる（design.md §6）
+    // single削除済みの日（tmpl.deletedDates）は復活させない＝除外する（design.md §6）
     const deletedSet = new Set(tmpl.deletedDates || []);
-    const newDates = _enumerateOccurrences(newRec, cutoff, keepers.length + deletedSet.size)
-      .filter(ds => !deletedSet.has(ds))
-      .slice(0, keepers.length);
-    // newDates が keepers.length に満たない場合（endDate等で救済先が尽きた）は
-    // 余った keeper を削除せず元の recurringDate/scheduledDate のまま残す（design.md §10 論点B＝保留）。
-    keepers.forEach((t, i) => {
-      if (i >= newDates.length) return; // 救済先なし→据え置き（孤児として保持）
-      t.recurringDate = newDates[i];
-      t.scheduledDate = newDates[i];
-    });
+    // r96修正12・Codex[P2]（衝突判定モデルの整え直し：未処理keeperの現在地も占有に含める）：
+    // 旧実装（修正9〜11）は「existingOccupied（固定・keeper全除外）」と「usedDates（割当済みのみ）」を
+    // 別々に管理していたため、まだ動いていない keeper の現在地が occupied から漏れていた。
+    // これにより、先に処理した keeper が「まだ処理していない後続 keeper の現在の recurringDate」へ
+    // 写像できてしまい、後続 keeper のアンカー先が（処理順序の関係で）弾かれて据え置きになる一方、
+    // 先行 keeper はそこへ移動済み＝結果的に同じ日に2件残る重複が発生していた
+    // （例：Mon+Wed両方keeper→Wedのみへ変更→Mon keeperを先に処理→空き判定でWedへ移動→
+    // 元のWed keeperを処理→アンカー先Wedは既に使用済みで据え置き→Wedが2件）。
+    // 修正：単一の動的占有集合 occupied を写像開始前に「実際に削除される plainsToDelete を除く
+    // 全 d.tasks[recurringId] の recurringDate（温存過去plain・完了非victim・全keeperの現在地を含む）」
+    // で初期化し、deletedSet も和に含める。各 keeper を処理するたびに
+    // 「occupied から自分の現在地 cur を一時的に除いた集合」に対して衝突判定し、
+    // 割当が決まったら occupied.delete(cur) → occupied.add(nd) で逐次更新する（旧位置解放・新位置占有）。
+    // usedDates は廃止し、この occupied 単体で一元管理する。
+    const _excludeFromOccupiedInit = new Set(plainsToDelete.map(t => t.id));
+    const occupied = new Set([
+      ...deletedSet,
+      ...d.tasks
+        .filter(t => t.recurringId === tmplId && !_excludeFromOccupiedInit.has(t.id))
+        .map(t => t.recurringDate ?? t.scheduledDate)
+        .filter(Boolean),
+    ]);
+    const oldKind = _periodKind((tmpl.recurring || {}).frequency);
+    const newKind = _periodKind(newRec.frequency);
+    const samePeriod = oldKind === newKind && newKind !== 'other';
+    // r96修正10：前方探索フォールバックの探索開始カーソル。1件割り当てるたびに「その日の翌日」へ
+    // 進める（cutoffへ振り出しに戻さない）ことで、同じ占有日を次のkeeperが再要求し続けるのを防ぎ、
+    // 複数keeperが順次・重複なく前方へマップされるようにする。
+    let _forwardCursor = cutoff;
+
+    for (const k of keepers) {
+      const curDate = k.recurringDate ?? k.scheduledDate;
+      // 自分自身の現在地は「動ける／戻れる」枠として一時的に occupied から除く（修正12）。
+      // 移動しない・保留になった場合はループ末尾で再度 occupied に戻す。
+      occupied.delete(curDate);
+      let nd = null;
+      if (samePeriod && newKind === 'weekly') {
+        nd = _anchorWeekly(curDate, newRec.days);
+      } else if (samePeriod && newKind === 'monthly') {
+        nd = _anchorMonthly(curDate, newRec.startDay || 1);
+      } else {
+        // 頻度自体が変わる（期間種別が異なる）場合のみ前方探索フォールバック（§R3-4）。
+        // occupied（cur除外済み）を渡す。_nextForward は占有日・削除済み日を飛ばして前進する。
+        nd = _nextForward(newRec, _forwardCursor, occupied, deletedSet);
+        if (nd !== null) {
+          // 次の keeper の探索はこの日の翌日から再開する（同じ占有日への再要求を避ける）。
+          const _nd2 = new Date(nd + 'T00:00:00');
+          _nd2.setDate(_nd2.getDate() + 1);
+          _forwardCursor = `${_nd2.getFullYear()}-${pad(_nd2.getMonth()+1)}-${pad(_nd2.getDate())}`;
+        }
+      }
+      let _assigned = false;
+      if (nd !== null) {
+        if (nd === curDate) {
+          // 移動不要（写像先が現在地と同じ）。occupiedはこの後 finally で cur を戻すので何もしない。
+          _assigned = true; // 据え置きでも自分の位置は維持＝正常扱い（occupiedへの復帰のみ行う）
+        } else if (!occupied.has(nd) && _shouldOccur(newRec, new Date(nd + 'T00:00:00'))) {
+          // 空き、かつ newRec に対して有効（endDate/startDate/曜日整合・修正7-8）→ 確定移動
+          occupied.add(nd);
+          k.recurringDate = nd;
+          k.scheduledDate = nd;
+          _assigned = true;
+        }
+        // else: 他者に占有されている、または newRec に対して無効 → 救済先なし扱い（下のfallbackへ）
+      }
+      if (!_assigned) {
+        // 救済先なし（monthly当月欠落／前方探索枯渇／衝突／endDate超過等）→据え置き（§10 論点B）。
+        // 自分の現在地 cur は他のkeeperに奪われないよう occupied に残す。
+        occupied.add(curDate);
+      }
+      // nd===curDate（移動不要）の場合も cur を occupied に戻す必要がある（上のadd分岐を通らないため）。
+      if (nd === curDate) occupied.add(curDate);
+    }
   }
 
   return d.tasks;
@@ -6622,19 +6775,58 @@ function confirmRecurringUpdate(taskId) {
           .filter(Boolean);
         remapCutoff = allDates.length ? allDates.reduce((a, b) => a < b ? a : b) : (tmpl.recurring?.startDate ?? today);
       }
-      _remapOccurrences(d, tmpl, remapCutoff, _newRecurring, remapIncludeCompleted);
-      // future/future-all は新パターンを cutoff 以降に限定する（過去は旧パターンの実体が
-      // tasks[] に残っているのでテンプレの未来生成だけ新パターンへ切り替える）。all は
-      // 元の startDate を維持する（design.md §2-3 手順6・§2-4）。
-      const _startDateForTmpl = mode === 'all'
-        ? (tmpl.recurring?.startDate ?? null)
-        : (() => {
-            const existing = tmpl.recurring?.startDate ?? null;
-            if (!existing) return remapCutoff;
-            return existing > remapCutoff ? existing : remapCutoff; // max(既存startDate, cutoff)
-          })();
+      // r96修正8・Codex[P2]（修正6×修正7相互作用バグ）：
+      // 緩和後の最終 startDate を _remapOccurrences 呼び出し「前」に1回確定し、
+      // アンカー検証（_shouldOccur）とテンプレ更新の両方で同じ値を使う。
+      // 旧実装は _remapOccurrences に緩和前の _newRecurring（startDate未緩和）を渡しており、
+      // 内部の _shouldOccur(newRec, nd) 検証が緩和前 startDate で nd を弾く一方、
+      // 後段でテンプレ側だけ startDate を緩めていたため、「検証は弾く→だが後でrefreshは生成する」
+      // という不整合（水曜の幽霊＋月曜の重複）が起きていた。検証・生成・テンプレを同一値で揃える。
+      //
+      // r96修正6・Codex[P2]-d：startDate の期間先頭緩和は「同期間アンカー remap」のときだけ適用する。
+      // 頻度自体が変わる（period種別が異なる＝_remapOccurrences内部で前方探索フォールバックに
+      // 入るケース）は、keeper を cutoff 以降にしか置かないため緩和不要・従来どおり
+      // max(既存startDate, cutoff) を使う。緩和すると「毎週金曜→毎月1日」等で選択回より前の
+      // 同月1日に新発生日が生成されてしまい「この回以降」スコープを破るため。
+      const _oldKindForTmpl = _periodKind((tmpl.recurring || {}).frequency);
+      const _newKindForTmpl = _periodKind(_newRecurring.frequency);
+      const _samePeriodForTmpl = _oldKindForTmpl === _newKindForTmpl && _newKindForTmpl !== 'other';
+      let _startDateForTmpl;
+      if (_samePeriodForTmpl) {
+        // r96・design.md §R3-7：startDate は「cutoff の所属期間の先頭」（weekly/biweekly→ISO週の
+        // 月曜／monthly→月初）へ緩める。期間アンカー写像は「選んだ回より前の日（同週の早い曜日・
+        // 同月の早い日）」へ救済しうるため、startDate=cutoff のままだと _shouldOccur の下限ガード
+        // （L5619）がその新発生日を弾いてしまう。前の期間（前週・前月）へは下げない（future の
+        // 意味を保つ＝§R3-7 境界定義）。
+        const _anchorPeriodStart = _periodStart(remapCutoff, _newKindForTmpl);
+        _startDateForTmpl = mode === 'all'
+          // all は元の startDate を維持する。ただし元 startDate がアンカー先（期間先頭）より後ろ
+          // なら、同様に期間先頭へ緩める（design.md §R3-7）。
+          ? (() => {
+              const existing = tmpl.recurring?.startDate ?? null;
+              if (!existing) return existing;
+              return existing > _anchorPeriodStart ? _anchorPeriodStart : existing;
+            })()
+          // future/future-all は常に「cutoff の所属期間の先頭」へ緩める（§R3-7）。
+          // 期間先頭は cutoff 自体以前にはなるが、cutoff の前の期間（前週・前月）へは
+          // 下がらない（_periodStart は cutoff と同じ期間内の先頭日を返すため）。
+          : _anchorPeriodStart;
+      } else {
+        // 頻度変更（period種別が異なる）時：従来どおり据え置き（r95時点のロジック・§R3-7「同期間時のみ」境界）。
+        _startDateForTmpl = mode === 'all'
+          ? (tmpl.recurring?.startDate ?? null)
+          : (() => {
+              const existing = tmpl.recurring?.startDate ?? null;
+              if (!existing) return remapCutoff;
+              return existing > remapCutoff ? existing : remapCutoff; // max(既存startDate, cutoff)
+            })();
+      }
       // endDate はモーダル値（_newRecurring.endDate）を額面通り honor する（design.md §4・§10論点E確定）。
-      tmpl.recurring = { ..._newRecurring, startDate: _startDateForTmpl };
+      // 緩和後 startDate を載せた _finalNewRec を確定し、_remapOccurrences のアンカー検証・
+      // テンプレ更新の両方にこれを使う（修正8：検証用と最終用の startDate を一致させる）。
+      const _finalNewRec = { ..._newRecurring, startDate: _startDateForTmpl };
+      _remapOccurrences(d, tmpl, remapCutoff, _finalNewRec, remapIncludeCompleted);
+      tmpl.recurring = _finalNewRec;
     } else {
       tmpl.recurring = _newRecurring;
     }
