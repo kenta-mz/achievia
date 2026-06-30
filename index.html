@@ -1926,7 +1926,7 @@ function _positionTip(btn) {
 // ============================================================
 // UI STATE
 // ============================================================
-const APP_VERSION = '2026-06-28-r94'; // pushのたびに更新する（UIに表示、バージョン確認用）
+const APP_VERSION = '2026-06-30-r95'; // pushのたびに更新する（UIに表示、バージョン確認用）
 let viewMode = 'list';
 let heroAnchorDate = todayStr(); // YYYY-MM-DD — Hero/タイムラインビューの表示基準日
 let _gcalEventsCache = {}; // { 'YYYY-MM-DD': [{id,summary,start,end,_calBg}] } — セッション内キャッシュ
@@ -5616,6 +5616,7 @@ function _shouldOccur(rec, date) {
   if (!rec) return false;
   const ds = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
   if (rec.endDate && ds > rec.endDate) return false;
+  if (rec.startDate && ds < rec.startDate) return false; // startDate下限ガード（r95修正4・Codex[P2]-b）
   const dow = date.getDay();
   switch (rec.frequency) {
     case 'daily':    return true;
@@ -5625,6 +5626,119 @@ function _shouldOccur(rec, date) {
     case 'monthly':  return date.getDate() === (rec.startDay || 1);
     default: return false;
   }
+}
+
+// rec の発生日を fromStr から最大 count 件列挙する（曜日/日リマップの救済先計算用・r95）。
+// _shouldOccur に判定を委譲する＝発生判定式の単一ソース化（mistakes 2026-06-05）。
+// guard は約11年ぶんの日数で、endDate到達などで count に届かない場合の無限ループを防ぐ。
+// count に満たないまま返ることがある（呼び出し側で不足を扱う・design.md §2-3 手順5）。
+function _enumerateOccurrences(rec, fromStr, count) {
+  const out = [];
+  if (count <= 0) return out;
+  const dt = new Date(fromStr + 'T00:00:00');
+  let guard = 0;
+  while (out.length < count && guard < 4000) {
+    if (_shouldOccur(rec, dt)) {
+      out.push(`${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`);
+    }
+    dt.setDate(dt.getDate() + 1);
+    guard++;
+  }
+  return out;
+}
+
+// インスタンス t が「固有データ持ち」＝曜日/日リマップで救済（再日付）すべき対象かを判定する（r95）。
+// 該当しない（素の未編集pending）は削除して refresh に新パターンでの再生成を委ねる（design.md §2-3）。
+function _hasInstanceData(t, tmpl) {
+  if (!t) return false;
+  if (t.status === 'completed') return true;                                   // 完了＝実績の核
+  if ((t.actualHours ?? null) !== null) return true;                            // 実績時間
+  if (Array.isArray(t.partialHours) && t.partialHours.length > 0) return true;  // 部分実績
+  if (t.notes && t.notes !== (tmpl?.notes || '')) return true;                  // 個別メモ
+  if (t.completedAt) return true;                                               // 完了日時
+  if (t.scheduledDate !== t.recurringDate) return true;                         // 手動リスケ済み（意図あり）
+  if (Array.isArray(t.estimatedHoursByDate) && t.estimatedHoursByDate.length > 0) return true; // スロット個別編集
+  if (t.status !== 'pending') return true;                                      // pending以外の状態変更
+  // single編集された pending 回の取りこぼし対策（r95修正3・Codex[P2]-a）：
+  // refresh生成時インスタンスはテンプレからtitle/projectId/workType/estimatedHours/startTime/endTimeを
+  // コピーする（refreshRecurringInstances生成ループ参照）ため、これらがtmplと異なれば
+  // ユーザーがsingle編集した固有データとみなす。null/undefined差で誤検知しないよう ?? null で正規化。
+  if (tmpl) {
+    if (t.title !== tmpl.title) return true;
+    if ((t.projectId ?? null) !== (tmpl.projectId ?? null)) return true;
+    if ((t.workType ?? null) !== (tmpl.workType ?? null)) return true;
+    if ((t.estimatedHours ?? null) !== (tmpl.estimatedHours ?? null)) return true;
+    if ((t.startTime ?? null) !== (tmpl.startTime ?? null)) return true;
+    if ((t.endTime ?? null) !== (tmpl.endTime ?? null)) return true;
+  }
+  return false;
+}
+
+// 曜日/日リマップ（救済限定）。生成は refreshRecurringInstances 一本に保つため、
+// 固有データを持つ victim（_hasInstanceData）だけを新発生日へ再日付し、素の pending は
+// 削除して refresh が新パターンで窓内に生成し直すのに任せる（design.md §2-3）。
+// includeCompleted=false（future）は完了済みを victim から除外、true（future-all/all）は含める。
+function _remapOccurrences(d, tmpl, cutoff, newRec, includeCompleted) {
+  const tmplId = tmpl.id;
+  const victims = d.tasks.filter(t => {
+    if (t.recurringId !== tmplId) return false;
+    if (!includeCompleted && t.status === 'completed') return false;
+    const td = t.recurringDate ?? t.scheduledDate;
+    return !!(td && td >= cutoff);
+  });
+  const keepers = victims.filter(t => _hasInstanceData(t, tmpl));
+  const plains  = victims.filter(t => !_hasInstanceData(t, tmpl));
+
+  // 素 victim は削除 → refresh が新パターンで窓内に生成し直す（窓外生成はしない＝不変条件1）。
+  // ただし削除対象は「今日以降」の回に限定する（r95修正5・Codex[P2]-c）。
+  // refreshRecurringInstances は今日以降しか再生成しないため、過去の素 pending を削除すると
+  // r94 で永続化した「やり残し」バックログが復活せず消失してしまう（cutoffが過去のall/期限切れ
+  // future系リマップで起こりうる）。過去の素 pending は削除せず元の日付のまま温存する。
+  const _today = todayStr();
+  const plainsToDelete = plains.filter(t => (t.recurringDate ?? t.scheduledDate) >= _today);
+  if (plainsToDelete.length) {
+    const plainIds = new Set(plainsToDelete.map(t => t.id));
+    d.tasks = d.tasks.filter(t => !plainIds.has(t.id));
+  }
+
+  if (keepers.length) {
+    // recurringDate昇順で安定ソートしてから新発生日を割り当てる
+    keepers.sort((a, b) => {
+      const ad = a.recurringDate ?? a.scheduledDate ?? '';
+      const bd = b.recurringDate ?? b.scheduledDate ?? '';
+      return ad < bd ? -1 : ad > bd ? 1 : 0;
+    });
+    // single削除済みの日（tmpl.deletedDates）は復活させない＝除外してから割り当てる（design.md §6）
+    const deletedSet = new Set(tmpl.deletedDates || []);
+    const newDates = _enumerateOccurrences(newRec, cutoff, keepers.length + deletedSet.size)
+      .filter(ds => !deletedSet.has(ds))
+      .slice(0, keepers.length);
+    // newDates が keepers.length に満たない場合（endDate等で救済先が尽きた）は
+    // 余った keeper を削除せず元の recurringDate/scheduledDate のまま残す（design.md §10 論点B＝保留）。
+    keepers.forEach((t, i) => {
+      if (i >= newDates.length) return; // 救済先なし→据え置き（孤児として保持）
+      t.recurringDate = newDates[i];
+      t.scheduledDate = newDates[i];
+    });
+  }
+
+  return d.tasks;
+}
+
+// recurring 構造のうち「発生日そのものを変える」差分（frequency/days/startDay）があるかを判定する（r95）。
+// startDate/endDateのみの変更はリマップ不要（発生日の再定義ではない）なのでここでは見ない。
+function _recurPatternChanged(oldRec, newRec) {
+  if (!oldRec || !newRec) return !!oldRec !== !!newRec;
+  if (oldRec.frequency !== newRec.frequency) return true;
+  if (oldRec.frequency === 'monthly') {
+    return (oldRec.startDay || 1) !== (newRec.startDay || 1);
+  }
+  if (oldRec.frequency === 'weekly' || oldRec.frequency === 'biweekly') {
+    const a = Array.isArray(oldRec.days) ? [...oldRec.days].sort() : [];
+    const b = Array.isArray(newRec.days) ? [...newRec.days].sort() : [];
+    return a.length !== b.length || a.join(',') !== b.join(',');
+  }
+  return false; // daily/weekdays は曜日集合変更が無い
 }
 
 function refreshRecurringInstances() {
@@ -6089,7 +6203,9 @@ function saveEditModal() {
       .filter(i => i >= 0);
     const startDate = document.getElementById('em-startdate')?.value || null;
     const endDate   = document.getElementById('em-enddate')?.value || null;
-    tmpl.recurring  = { frequency: freq, days, startDate, endDate };
+    // テンプレ編集には作業日が無いため、monthly の startDay は既存値を維持する（無ければ1）。
+    // テンプレ編集UIでの日変更（日ピッカー）は本タスク範囲外（design.md §7-3項目3・§10論点C）。
+    tmpl.recurring  = { frequency: freq, days, startDate, endDate, ...(freq === 'monthly' ? { startDay: tmpl.recurring?.startDay || 1 } : {}) };
     // 今日以降の未完了インスタンスに反映
     const today = todayStr();
     d.tasks.forEach(t => {
@@ -6152,13 +6268,18 @@ function saveEditModal() {
         .filter(i => i >= 0);
       const startDate = document.getElementById('em-startdate')?.value || null;
       const endDate = document.getElementById('em-enddate')?.value || null;
+      // monthly の startDay は作成時の scheduledDate の日から導出（someday なら1）。
+      // 日ピッカーは新設しない（design.md §7-2/§10論点C）。
+      const _emDayNew = freq === 'monthly'
+        ? (scheduledDate ? new Date(scheduledDate + 'T00:00:00').getDate() : 1)
+        : null;
       const tmplId = genId();
       d.recurringTemplates.push({
         id: tmplId, title: newTask.title, notes: newTask.notes,
         projectId: newTask.projectId, workType: newTask.workType,
         estimatedHours: newTask.estimatedHours, priority: newTask.priority,
         startTime: newTask.startTime ?? null, endTime: newTask.endTime ?? null,
-        recurring: { frequency: freq, days, startDate, endDate }
+        recurring: { frequency: freq, days, startDate, endDate, ...(freq === 'monthly' ? { startDay: _emDayNew } : {}) }
       });
       newTask.recurringId = tmplId;
     }
@@ -6231,6 +6352,19 @@ function saveEditModal() {
     .filter(i => i >= 0);
   const startDate = document.getElementById('em-startdate')?.value || null;
   const endDate   = document.getElementById('em-enddate')?.value || null;
+  // 既存テンプレ（recurring化済みなら存在）を先に引いておく。monthly startDay の
+  // 「変えていなければ既存値を維持」判定に使う（修正1・下記）。
+  const _emExistingTmpl = task.recurringId ? d.recurringTemplates.find(t => t.id === task.recurringId) : null;
+  // monthly の startDay は「このセッションでユーザーが日付を実際に変えたとき」だけ
+  // 新しい day から導出する。リスケ済みインスタンス（scheduledDate !== recurringDate）を
+  // 編集する場合、newVals.scheduledDate は「移動後の作業日」であり発生日ではないため、
+  // これをそのまま起点にすると無関係な編集でも _recurChanged が誤発火し、future/all 選択時に
+  // シリーズ全体がリスケ日へ書き換わってしまう（Codex監査[P2]・r95修正）。
+  // 日付が変わっていなければテンプレ既存の startDay を維持する＝誤発火しない。
+  const _emDateChangedThisEdit = newVals.scheduledDate !== task.scheduledDate;
+  const _emDay = (_emDateChangedThisEdit && newVals.scheduledDate)
+    ? new Date(newVals.scheduledDate + 'T00:00:00').getDate()
+    : (_emExistingTmpl?.recurring?.startDay ?? (task.recurringDate ? new Date(task.recurringDate + 'T00:00:00').getDate() : 1));
 
   // ── ケース2: 新規テンプレ化（初回の繰り返し化）→ 4択なし即保存 ──
   if (!task.recurringId) {
@@ -6241,7 +6375,7 @@ function saveEditModal() {
       projectId: task.projectId, workType: task.workType,
       estimatedHours: task.estimatedHours, priority: task.priority,
       startTime: task.startTime ?? null, endTime: task.endTime ?? null,
-      recurring: { frequency: freq, days, startDate, endDate }
+      recurring: { frequency: freq, days, startDate, endDate, ...(freq === 'monthly' ? { startDay: _emDay } : {}) }
     });
     task.recurringId = tmplId;
     refreshRecurringInstances(); // 既存挙動維持（新規スケジュール生成）
@@ -6249,17 +6383,26 @@ function saveEditModal() {
     return;
   }
 
-  // ── 既存テンプレあり：recurring 構造（freq/days/startDate/endDate）の変更を検出 ──
+  // ── 既存テンプレあり：recurring 構造（freq/days(またはmonthlyのstartDay)/startDate/endDate）の変更を検出 ──
   // 注：tmpl.recurring はここでは書き換えない。4択モーダルでキャンセル/この回のみを
   //     選んだ場合に構造変更がメモリへ漏れて次の save で永続化するのを防ぐため、
   //     構造の適用は確定時（伝播変更なしの即保存 or confirmRecurringUpdate）まで遅延する。
-  const tmpl = d.recurringTemplates.find(t => t.id === task.recurringId);
-  const _recurChanged = _emRecurringStructChanged(tmpl, freq, days, startDate, endDate);
-  const _newRecurring = { frequency: freq, days, startDate, endDate };
+  const tmpl = _emExistingTmpl;
+  const _recurChanged = _emRecurringStructChanged(tmpl, freq, days, startDate, endDate, freq === 'monthly' ? _emDay : undefined);
+  const _newRecurring = { frequency: freq, days, startDate, endDate, ...(freq === 'monthly' ? { startDay: _emDay } : {}) };
+  // パターン（frequency/days/monthly startDay）自体が変わったか。startDate/endDateのみの
+  // 変更はここでは false になる＝4択を出さずシリーズ属性として直接反映する（修正2）。
+  const _patternChanged = _recurChanged && _recurPatternChanged(tmpl?.recurring, _newRecurring);
 
-  // ── ケース3: 4択トリガー（伝播対象＋時刻）の変更有無を判定 ──
-  if (_emHasEditTrigger(task, newVals)) {
-    // 伝播対象に変更あり → 編集モーダルを閉じてから4択モーダルを出す。
+  // ── ケース3: 4択トリガー（伝播対象＋時刻＋パターンを変える構造変更）の有無を判定 ──
+  // パターンを変える scheduledDate 変更（曜日/日/頻度）は _patternChanged===true になり4択発火する。
+  // パターン整合のリスケ（曜日/日が変わらない移動）は _recurChanged===false のままなので
+  // 従来どおり4択なし（r93維持・design.md §8 統一ルール）。
+  // startDate/endDate のみの変更（パターン不変）は _recurChanged===true だが
+  // _patternChanged===false のため、ここでは4択を出さずシリーズ属性として直接反映する
+  // （修正2：開始日/終了日はシリーズ単位の属性で回スコープ選択になじまない＝旧来即時反映を維持）。
+  if (_emHasEditTrigger(task, newVals) || _patternChanged) {
+    // 伝播対象 or パターン変更あり → 編集モーダルを閉じてから4択モーダルを出す。
     // 編集モーダルを残すと4択に被って見えない（削除フロー L1133 と同じく先に閉じる）。
     // confirmRecurringUpdate は taskId 引数と _pendingRecurringEdit で完結し _editModalId に
     // 依存しないため、ここで closeEditModal()（状態リセット）を呼んでも安全。
@@ -6269,10 +6412,15 @@ function saveEditModal() {
     return; // commit はここでは呼ばない
   }
 
-  // 伝播変更なし（scheduledDate/status/時刻/構造のみ変更）→ この回のみ即保存
+  // 伝播変更・パターン変更なし→ この回のみ即保存。
+  // ただし startDate/endDate のみの構造変更（_recurChanged===true && _patternChanged===false）は
+  // シリーズ属性としてテンプレへ直接反映＋refresh する（修正2：本タスクで一旦削除した旧
+  // 「構造変更のみ即保存」分岐を、パターン不変条件付きで復活）。
   _applyAllFields(task, newVals);
-  if (_recurChanged && tmpl) tmpl.recurring = _newRecurring; // 構造変更を確定時に適用
-  if (_recurChanged) refreshRecurringInstances(); // 構造変更時のみ既存挙動で再構築
+  if (_recurChanged && !_patternChanged && tmpl) {
+    tmpl.recurring = _newRecurring;
+    refreshRecurringInstances();
+  }
   commit(); closeEditModal();
 }
 
@@ -6287,9 +6435,12 @@ function _emHasPropagatedChange(task, nv) {
   return PROPAGATED.some(k => (task[k] ?? null) !== (nv[k] ?? null));
 }
 
-// 4択を出すトリガー集合（r93）：PROPAGATED ＋ 時刻（null↔値含む）。
-// notes・日付（scheduledDate）は含めない＝単独変更では4択を出さず即 single 保存
-// （Q2：メモ／日付の「この回のみ」リスケ。曜日リマップは対象外＝再スコープで撤回）。
+// 4択を出すトリガー集合（r93＋r95）：PROPAGATED ＋ 時刻（null↔値含む）。
+// notes・日付（scheduledDate）単独は含めない＝パターンを変えない scheduledDate 変更（リスケ）
+// では4択を出さず即 single 保存（Q2：メモ／日付の「この回のみ」リスケ・r93維持）。
+// パターンを変える scheduledDate 変更（曜日/日/頻度）は呼び出し側で _recurChanged を
+// 別途 OR してトリガーに含める（saveEditModal・design.md §8）。このため曜日/日リマップは
+// _emHasEditTrigger 自体ではなく _recurChanged 経由で4択発火する＝対象外ではない。
 function _emHasEditTrigger(task, nv) {
   if (_emHasPropagatedChange(task, nv)) return true;                            // ① PROPAGATED
   if ((task.startTime ?? null) !== (nv.startTime ?? null)) return true;         // ② 時刻
@@ -6297,13 +6448,22 @@ function _emHasEditTrigger(task, nv) {
   return false;
 }
 
-// recurring 構造（freq/days/startDate/endDate）が変わったか判定
-function _emRecurringStructChanged(tmpl, freq, days, startDate, endDate) {
+// recurring 構造（freq/days(またはmonthlyのstartDay)/startDate/endDate）が変わったか判定
+// startDay（第6引数）はmonthly選択時のみ渡される（weekly/biweeklyはundefined＝daysで判定・r95）。
+function _emRecurringStructChanged(tmpl, freq, days, startDate, endDate, startDay) {
   const r = tmpl?.recurring;
   if (!r) return true;
   const sameDays = Array.isArray(r.days) && r.days.length === days.length &&
     [...r.days].sort().join(',') === [...days].sort().join(',');
-  return r.frequency !== freq || !sameDays || (r.startDate ?? null) !== (startDate ?? null) || (r.endDate ?? null) !== (endDate ?? null);
+  if (r.frequency !== freq) return true;
+  if (freq === 'monthly') {
+    if ((r.startDay || 1) !== (startDay || 1)) return true;   // 日変更を検出（r95）
+  } else if (freq === 'weekly' || freq === 'biweekly') {
+    if (!sameDays) return true;                               // 曜日変更を検出
+  }
+  if ((r.startDate ?? null) !== (startDate ?? null)) return true;
+  if ((r.endDate ?? null) !== (endDate ?? null)) return true;
+  return false;
 }
 
 // 伝播列のみ上書き（完了済み保護＝actual/partial/completedAt/status を触らないことで構造的に保証）
@@ -6440,10 +6600,45 @@ function confirmRecurringUpdate(taskId) {
 
   // recurring 構造（freq/days/startDate/endDate）の変更はシリーズ単位の概念。
   // 「この回のみ（single）」ではシリーズを変えないため構造変更は適用しない（この回だけ
-  // という選択を尊重）。非single かつ構造変更ありのときだけテンプレへ適用＋未来分を
-  // 再生成する（構造変更時の refresh は既存挙動でユーザー受容済み・伝播パスとは別）。
+  // という選択を尊重）。非single かつ構造変更ありのときだけテンプレへ適用する。
   // キャンセル時は closeRecurringUpdateModal が _pendingRecurringEdit を捨てるため未適用。
-  if (mode !== 'single' && _recurChanged && tmpl) tmpl.recurring = _newRecurring;
+  //
+  // _recurPatternChanged===true（曜日/日/頻度を伴う変更）のときだけ _remapOccurrences で
+  // 固有データ持ち victim を救済（再日付）する（design.md §2〜§6）。endDate/startDateのみの
+  // 構造変更（_recurChanged===trueだが_recurPatternChanged===false）はリマップ不要・
+  // 従来どおり tmpl.recurring 置換＋refresh のみで足りる（design.md §11 統合方針）。
+  if (mode !== 'single' && _recurChanged && tmpl) {
+    const patternChanged = _recurPatternChanged(tmpl.recurring, _newRecurring);
+    if (patternChanged) {
+      // future/future-all は選択回の発生日（cutoff）以降のみ救済。
+      // all は当シリーズの最古 victim の recurringDate（無ければ tmpl.recurring.startDate ?? today）を
+      // cutoff とし、過去含む全回を対象にする（design.md §2-4）。
+      let remapCutoff = cutoff;
+      let remapIncludeCompleted = mode !== 'future'; // future-all/all = true, future = false
+      if (mode === 'all') {
+        const allDates = d.tasks
+          .filter(t => t.recurringId === tmplId)
+          .map(t => t.recurringDate ?? t.scheduledDate)
+          .filter(Boolean);
+        remapCutoff = allDates.length ? allDates.reduce((a, b) => a < b ? a : b) : (tmpl.recurring?.startDate ?? today);
+      }
+      _remapOccurrences(d, tmpl, remapCutoff, _newRecurring, remapIncludeCompleted);
+      // future/future-all は新パターンを cutoff 以降に限定する（過去は旧パターンの実体が
+      // tasks[] に残っているのでテンプレの未来生成だけ新パターンへ切り替える）。all は
+      // 元の startDate を維持する（design.md §2-3 手順6・§2-4）。
+      const _startDateForTmpl = mode === 'all'
+        ? (tmpl.recurring?.startDate ?? null)
+        : (() => {
+            const existing = tmpl.recurring?.startDate ?? null;
+            if (!existing) return remapCutoff;
+            return existing > remapCutoff ? existing : remapCutoff; // max(既存startDate, cutoff)
+          })();
+      // endDate はモーダル値（_newRecurring.endDate）を額面通り honor する（design.md §4・§10論点E確定）。
+      tmpl.recurring = { ..._newRecurring, startDate: _startDateForTmpl };
+    } else {
+      tmpl.recurring = _newRecurring;
+    }
+  }
   if (mode !== 'single' && _recurChanged) refreshRecurringInstances();
 
   commit();                       // 内部で render() を呼ぶ。明示 render() は不要
